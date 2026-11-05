@@ -1,0 +1,21 @@
+# This demo's model gateway (../_demo-kit/model-gateway.py). Demos ask it,
+# never a provider API; `just provider-check` enforces that.
+# Fixture replay is the default. Live needs GATEWAY_MODE=live and
+# GATEWAY_BACKEND=claude|codex|gemini|kimi|local when the gateway starts.
+# Caps are clamped to the gateway's hard limits; a request cannot change them.
+port = 18020
+fixtures = "fixtures/model"
+state = ".runtime/gateway"
+timeout_s = 240
+
+[caps]
+per_run = 6
+per_minute = 2
+per_day = 20
+
+[models]
+claude = "sonnet"
+gemini = "gemini-3.8-flash-low"
+codex = ""
+kimi = ""
+local = "ministral-3:3b"

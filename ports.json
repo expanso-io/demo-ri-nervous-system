@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "demo": "demo-ri-nervous-system",
+  "ports": {
+    "PORT": 8020,
+    "GATEWAY_PORT": 18020
+  }
+}

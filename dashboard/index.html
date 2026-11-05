@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Drone With a Nervous System</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>The Drone With a Nervous System</h1>
+  <span class="pill" data-state="on">ORCHESTRATED BY EXPANSO CLOUD</span>
+</header>
+
+<main>
+  <section class="stage" id="stage">
+    <canvas id="flow"></canvas>
+    <div class="node n-src" data-cast="source"><h3>source</h3><div class="big" id="src-rate">0</div><div class="l">msgs/s raw</div></div>
+    <div class="node n-edge" data-cast="edge"><span class="glyph expanso" aria-hidden="true"></span><h3>Expanso edge</h3><div class="big" id="edge-rate">0</div><div class="l">msgs/s forwarded</div></div>
+    <div class="node node-orch n-cloud" data-cast="orchestrator"><h3>Expanso Cloud</h3><div class="l">deploys · status · retries</div></div>
+    <div class="node n-sink" data-cast="dest"><h3>destination</h3><div class="big" id="sink-rows">0</div><div class="l">rows landed</div></div>
+  </section>
+
+  <section class="tiles">
+    <div class="tile"><div class="k" id="k1">0</div><div class="l">events / sec</div></div>
+    <div class="tile"><div class="k ok" id="k2">0%</div><div class="l">kept at the edge</div></div>
+    <div class="tile"><div class="k warn" id="k3">0</div><div class="l">pending</div></div>
+    <div class="tile"><div class="k" id="k4">0</div><div class="l">nodes reporting</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>live events</h2>
+    <ul class="feed" id="feed"><li class="empty">awaiting motion</li></ul>
+  </section>
+  <section class="panel" id="shelf">
+    <h2>pipeline</h2>
+    <pre class="yaml">input: source
+pipeline: Expanso edge
+output: destination</pre>
+  </section>
+</main>
+
+<script src="hero.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+name: The Drone With a Nervous System
+slug: demo-ri-nervous-system
+type: dashboard
+port: 8020
+entrypoint: scripts/dashboard.py
+description: "Three small devices, one tiny model each, and a few bytes between them are enough to let a room full of people fly a drone without a data centre"
+created: 2026-11-04
