@@ -1,0 +1,58 @@
+[project]
+name = "ri-nervous-system"
+version = "0.1.0"
+description = "Three small devices, one tiny model each: a room flies a drone."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "ai-edge-litert>=1.2",
+    "amqtt==0.11.3",
+    "numpy>=1.26,<2.3",
+    "opencv-python-headless>=4.10",
+    "paho-mqtt>=2.1",
+    "scipy>=1.13",
+    "soundfile>=0.12",
+    "torch>=2.4",
+    "torchaudio>=2.4",
+    "ultralytics>=8.3",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["ri", "tests"]
+exclude = ["scripts/demo-ports\\.py$", "scripts/dashboard\\.py$", "scripts/producer\\.py$"]
+
+[[tool.mypy.overrides]]
+module = [
+    "ai_edge_litert.*",
+    "amqtt.*",
+    "cv2.*",
+    "scipy.*",
+    "soundfile.*",
+    "torchaudio.*",
+    "ultralytics.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]

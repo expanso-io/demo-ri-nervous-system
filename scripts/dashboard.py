@@ -34,7 +34,7 @@ def build_state() -> dict:
 
 
 class Handler(SimpleHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802 - http.server API
+    def do_GET(self) -> None:
         if self.path.startswith("/api/state"):
             body = json.dumps(build_state()).encode()
             self.send_response(200)

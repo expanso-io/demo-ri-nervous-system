@@ -11,3 +11,15 @@ __pycache__/
 .venv/
 *.pyc
 *.log
+# Expanso CLI and Edge identities stay project-local and never committed.
+.expanso-cli/
+# Downloaded weights and composed fixtures are rebuilt by `just fixtures`.
+models/cache/
+fixtures/build/
+# Recordings over 50 MB stay local; recordings/README.md says how to rebuild them.
+recordings/*.mp4
+recordings/*.webm
+recordings/frames/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
