@@ -3,6 +3,18 @@
   "demo": "demo-ri-nervous-system",
   "ports": {
     "PORT": 8020,
-    "GATEWAY_PORT": 18020
+    "GATEWAY_PORT": 18020,
+    "MQTT_PORT": 18021,
+    "FLIGHT_PORT": 18022,
+    "CLAP_INGEST_PORT": 18023,
+    "WORD_INGEST_PORT": 18024,
+    "HANDS_INGEST_PORT": 18025,
+    "CLAP_DEVICE_PORT": 18026,
+    "WORD_DEVICE_PORT": 18027,
+    "HANDS_DEVICE_PORT": 18028,
+    "EDGE_API_CLAP": 18029,
+    "EDGE_API_WORD": 18030,
+    "EDGE_API_HANDS": 18031,
+    "EDGE_API_FLY": 18032
   }
 }
