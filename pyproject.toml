@@ -37,7 +37,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["ri", "tests"]
+files = ["ri", "tests", "scripts/train_kws.py", "scripts/build_fixtures.py"]
 exclude = ["scripts/demo-ports\\.py$", "scripts/dashboard\\.py$", "scripts/producer\\.py$"]
 
 [[tool.mypy.overrides]]
