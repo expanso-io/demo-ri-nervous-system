@@ -1,0 +1,66 @@
+# hear-clap: the room mic's box. A one-second window of sound arrives every
+# quarter second, YAMNet scores it on this box, and only a clap leaves, as one
+# small message. The sound itself never leaves the box.
+name: hear-clap
+description: Hears a clap on the room mic and sends one small message
+type: pipeline
+labels:
+  demo: demo-ri-nervous-system
+  sense: clap
+selector:
+  match_labels:
+    demo: demo-ri-nervous-system
+    node: hear-clap
+config:
+  input:
+    label: room_mic_windows
+    http_server:
+      address: '127.0.0.1:${RI_CLAP_INGEST_PORT:20172}'
+      path: /frames
+      allowed_verbs: [POST]
+  pipeline:
+    threads: 1
+    processors:
+      - label: yamnet_on_this_box
+        http:
+          url: 'http://127.0.0.1:${RI_CLAP_DEVICE_PORT:20175}/infer'
+          verb: POST
+          headers:
+            Content-Type: application/octet-stream
+          timeout: 5s
+          retries: 5
+          retry_period: 1s
+      - label: model_unreachable
+        catch:
+          - label: model_unreachable_log
+            log:
+              level: WARN
+              message: 'clap model did not answer: ${! error() }'
+          - label: model_unreachable_skip
+            mapping: root = deleted()
+      - label: by_outcome
+        switch:
+          - check: this.sense == null && this.window % 20 == 0
+            processors:
+              - label: listening_log
+                log:
+                  level: INFO
+                  message: 'listening: window ${! this.window }, loudest ${! this.heard }'
+              - label: listening_skip
+                mapping: root = deleted()
+          - check: this.sense == null
+            processors:
+              - label: nothing_to_send
+                mapping: root = deleted()
+          - processors:
+              - label: clap_log
+                log:
+                  level: INFO
+                  message: 'clap ${! this.confidence } seq=${! this.seq } sent to decide'
+  output:
+    label: clap_to_decide
+    mqtt:
+      urls: ['tcp://127.0.0.1:${RI_MQTT_PORT:18021}']
+      topic: ri/sense/clap
+      client_id: hear-clap
+      qos: 1

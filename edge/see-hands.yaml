@@ -1,0 +1,10 @@
+# Expanso Edge node see-hands, on the presenter laptop for rehearsal. On stage
+# each sense node is its own small box beside its mic or camera. The
+# identity lives in ./.expanso-edge/see-hands (ignored; just workspace-init).
+name: ri-see-hands
+log:
+  level: info
+  format: text
+labels:
+  demo: demo-ri-nervous-system
+  node: see-hands

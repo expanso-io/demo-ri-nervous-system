@@ -23,6 +23,7 @@ from ri.messages import Decision, Sense
 FRESH_S = 3.0
 LAND_SHARE = 0.5
 LAND_MIN_SEEN = 10
+WAIT_SHARE = 0.2  # below this a stray raised hand is noise, not a vote
 CLAP_MIN = 0.5
 WORD_MIN = 0.5
 FLOOR_M = WAKE_ALTITUDE_M
@@ -88,15 +89,24 @@ class Decider:
         clap = self._pending("clap", now, CLAP_MIN)
         majority = hands is not None and hands.seen >= LAND_MIN_SEEN and hands.share > LAND_SHARE
 
-        # Rule 1, land: the safety reflex beats everything.
-        if drone.airborne and majority and hands is not None:
+        # Rule 1, land: the safety reflex beats everything. It keeps holding
+        # while the drone comes down, so a shout mid-descent still loses.
+        landing = drone.phase == "landing"
+        if (drone.airborne or landing) and majority and hands is not None:
             because = f"hands {hands.share:.2f}"
             inputs = [hands.label()]
-            if word is not None:
-                because += f" > word {word.value}"
-                inputs.append(word.label())
+            # Name the word that lost, even one already acted on a moment ago.
+            rival = word or self.fresh("word", now)
+            if rival is not None and rival.value in ("up", "down", "stop"):
+                because += f" > word {rival.value}"
+                inputs.append(rival.label())
             self._consume(word, clap)
             return Action("land", because, "land", tuple(inputs), t=now)
+        if landing and word is not None:
+            self._consume(word)
+            return Action(
+                "hold", f"landing: word {word.value} ignored", None, (word.label(),), t=now
+            )
 
         # Rule 2, stop: hold position now.
         if drone.airborne and word is not None and word.value == "stop":
@@ -123,7 +133,12 @@ class Decider:
         if word is not None and not drone.airborne:
             self._consume(word)
             return Action("hold", "asleep: clap to wake", None, (word.label(),), t=now)
-        if drone.airborne and hands is not None and hands.up > 0:
+        if (
+            drone.airborne
+            and hands is not None
+            and hands.up > 0
+            and (hands.share >= WAIT_SHARE or hands.seen < LAND_MIN_SEEN)
+        ):
             if hands.seen < LAND_MIN_SEEN:
                 why = f"waiting: {hands.seen} seen"
             else:

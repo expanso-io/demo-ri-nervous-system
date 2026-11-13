@@ -1,0 +1,57 @@
+# fly-drone: the decide node beside the drone. Every sense decision arrives
+# here, the rule table picks one act (land > stop > move > wake), the drone
+# does it, and the act goes back out with the reason it was chosen.
+name: fly-drone
+description: Picks one act from the latest senses and flies the drone
+type: pipeline
+labels:
+  demo: demo-ri-nervous-system
+  sense: decide
+selector:
+  match_labels:
+    demo: demo-ri-nervous-system
+    node: fly-drone
+config:
+  input:
+    label: sense_decisions
+    mqtt:
+      urls: ['tcp://127.0.0.1:${RI_MQTT_PORT:18021}']
+      topics: ['ri/sense/+']
+      client_id: fly-drone
+      qos: 1
+  pipeline:
+    threads: 1
+    processors:
+      - label: decision_in_log
+        log:
+          level: INFO
+          message: 'in ${! meta("mqtt_topic") }: ${! content().string() }'
+      - label: decide_node
+        http:
+          url: 'http://127.0.0.1:${RI_FLIGHT_PORT:18022}/decide'
+          verb: POST
+          headers:
+            Content-Type: application/json
+          timeout: 5s
+          retries: 5
+          retry_period: 1s
+      - label: flight_unreachable
+        catch:
+          - label: flight_unreachable_log
+            log:
+              level: ERROR
+              message: 'flight service did not answer, drone holds: ${! error() }'
+          - label: flight_unreachable_hold
+            mapping: |
+              root = {"act": "hold", "because": "flight service unreachable", "rule": null}
+      - label: act_log
+        log:
+          level: INFO
+          message: 'act ${! this.act } because ${! this.because } (from ${! this.from.or("-") })'
+  output:
+    label: act_out
+    mqtt:
+      urls: ['tcp://127.0.0.1:${RI_MQTT_PORT:18021}']
+      topic: ri/act
+      client_id: fly-drone-act
+      qos: 1

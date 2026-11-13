@@ -1,0 +1,10 @@
+# Expanso Edge node hear-clap, on the presenter laptop for rehearsal. On stage
+# each sense node is its own small box beside its mic or camera. The
+# identity lives in ./.expanso-edge/hear-clap (ignored; just workspace-init).
+name: ri-hear-clap
+log:
+  level: info
+  format: text
+labels:
+  demo: demo-ri-nervous-system
+  node: hear-clap

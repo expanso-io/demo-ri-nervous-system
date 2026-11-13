@@ -176,3 +176,35 @@ def test_parse_round_trip_and_rejects() -> None:
         parse_decision({"sense": "word", "value": "left", "confidence": 0.9})
     with pytest.raises(MessageError):
         parse_decision({"sense": "hands", "up": 3})
+
+
+def test_a_shout_during_the_descent_still_loses_to_the_hands() -> None:
+    d = Decider()
+    d.observe(hands(43, 60))
+    assert d.decide(drone(target=1.5), NOW).act == "land"
+    d.observe(word("up", t=NOW + 0.4))
+    action = d.decide(drone("landing", 0.9), NOW + 0.4)
+    assert (action.act, action.because) == ("land", "hands 0.72 > word up")
+
+
+def test_the_land_names_a_word_acted_on_a_moment_before() -> None:
+    d = Decider()
+    d.observe(word("up"))
+    assert d.decide(drone(), NOW).act == "up"
+    d.observe(hands(43, 60, t=NOW + 0.6))
+    action = d.decide(drone("climbing", 1.2), NOW + 0.6)
+    assert action.because == "hands 0.72 > word up"
+
+
+def test_a_word_while_landing_without_a_majority_is_ignored() -> None:
+    d = Decider()
+    d.observe(word("up"))
+    action = d.decide(drone("landing", 0.5), NOW)
+    assert (action.act, action.because) == ("hold", "landing: word up ignored")
+
+
+def test_one_stray_hand_is_not_a_vote_in_progress() -> None:
+    d = Decider()
+    d.observe(hands(1, 18))
+    action = d.decide(drone(), NOW)
+    assert (action.act, action.because, action.waiting) == ("hold", "no instruction", False)

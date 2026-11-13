@@ -1,0 +1,60 @@
+# see-hands: the camera's box. Five frames a second of the voting block arrive,
+# a pose model counts raised hands on this box, and every third frame one
+# count leaves: how many hands are up, of how many people seen. No pixels move.
+name: see-hands
+description: Counts raised hands in the voting block and sends the count
+type: pipeline
+labels:
+  demo: demo-ri-nervous-system
+  sense: hands
+selector:
+  match_labels:
+    demo: demo-ri-nervous-system
+    node: see-hands
+config:
+  input:
+    label: camera_frames
+    http_server:
+      address: '127.0.0.1:${RI_HANDS_INGEST_PORT:20174}'
+      path: /frames
+      allowed_verbs: [POST]
+  pipeline:
+    threads: 1
+    processors:
+      - label: pose_model_on_this_box
+        http:
+          url: 'http://127.0.0.1:${RI_HANDS_DEVICE_PORT:20181}/infer'
+          verb: POST
+          headers:
+            Content-Type: image/jpeg
+          timeout: 5s
+          retries: 5
+          retry_period: 1s
+      - label: model_unreachable
+        catch:
+          - label: model_unreachable_log
+            log:
+              level: WARN
+              message: 'pose model did not answer: ${! error() }'
+          - label: model_unreachable_skip
+            mapping: root = deleted()
+      - label: by_outcome
+        switch:
+          - check: this.sense == null
+            processors:
+              - label: frame_counted
+                mapping: root = deleted()
+          - processors:
+              - label: hands_log
+                log:
+                  level: INFO
+                  message: >-
+                    hands ${! this.up } of ${! this.seen }
+                    (${! (this.share * 100).round() }%) seq=${! this.seq } sent to decide
+  output:
+    label: hands_to_decide
+    mqtt:
+      urls: ['tcp://127.0.0.1:${RI_MQTT_PORT:18021}']
+      topic: ri/sense/hands
+      client_id: see-hands
+      qos: 1
