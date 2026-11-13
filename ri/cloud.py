@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,12 @@ PIPELINES = ROOT / "pipelines"
 JOBS = ("hear-clap", "hear-commands", "see-hands", "fly-drone")
 NODES = JOBS
 LABEL = "demo=demo-ri-nervous-system"
+EDGE_API = {
+    "hear-clap": "EDGE_API_CLAP",
+    "hear-commands": "EDGE_API_WORD",
+    "see-hands": "EDGE_API_HANDS",
+    "fly-drone": "EDGE_API_FLY",
+}
 
 
 def cli(*args: str, check: bool = True, timeout: float = 60) -> subprocess.CompletedProcess[str]:
@@ -74,3 +82,32 @@ def nodes() -> str:
 
 def jobs() -> str:
     return cli("job", "list", check=False).stdout
+
+
+def running_on(node: str) -> bool:
+    """True when that node's own Edge agent reports its pipeline running."""
+    from ri.ports import port
+
+    api = f"http://127.0.0.1:{port(EDGE_API[node])}/api/v1/executions"
+    try:
+        with urllib.request.urlopen(api, timeout=2) as response:
+            items = json.loads(response.read() or b"{}").get("items", [])
+    except (OSError, ValueError):
+        return False
+    for item in items:
+        status = item.get("status", {})
+        desired = status.get("desired_state", {}).get("state_type")
+        observed = status.get("observed_state", {}).get("state_type")
+        if desired == "running" and observed == "running":
+            return True
+    return False
+
+
+def wait_running(count: int, timeout: float) -> bool:
+    """Wait until exactly `count` of the four nodes run their pipeline."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if sum(running_on(n) for n in NODES) == count:
+            return True
+        time.sleep(0.5)
+    return False

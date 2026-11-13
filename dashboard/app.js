@@ -24,6 +24,8 @@ const NODE_OF = { clap: "hear-clap", word: "hear-commands", hands: "see-hands" }
 
 const SENSE_OF = { "hear-clap": "clap", "hear-commands": "word", "see-hands": "hands" };
 
+const EMPTY = { clap: "no clap yet", word: "no word yet", hands: "no count yet" };
+
 const DEVICE_OF = { clap: "hear-clap", word: "hear-commands", hands: "see-hands" };
 
 const COLORS = {
@@ -317,7 +319,7 @@ function render(now) {
     const a = age(m, now);
     const text = label(sense, m);
     const k = $(`m-${sense}`);
-    k.textContent = text ?? k.textContent;
+    k.textContent = text ?? EMPTY[sense];
     k.classList.toggle("none", !text);
     $(`a-${sense}`).textContent = m ? `${node} · ${ageText(a)}` : node;
     slot.classList.toggle("fresh", a < FRESH_S);
@@ -349,13 +351,16 @@ function render(now) {
 function renderDecide(now) {
   const act = state.act;
 
+  if (!act) lastRealAct = null;
+
+
   if (act && act.act !== "hold") lastRealAct = act;
   const recent = lastRealAct && age(lastRealAct, now) < 3.5 ? lastRealAct : null;
   const shown = recent || act;
   const because = $("because");
 
-  if (!state.nodes["fly-drone"].live && !act) {
-    because.textContent = "off";
+  if (!act) {
+    because.textContent = state.nodes["fly-drone"].live ? "no instruction" : "off";
   } else if (shown) {
     because.textContent = shown.act === "hold" ? shown.because : `${shown.act}: ${shown.because}`;
   }
@@ -373,7 +378,11 @@ function renderDecide(now) {
 
   const slotK = $("m-act");
 
-  if (shown) {
+  if (!shown) {
+    slotK.textContent = "no act yet";
+    slotK.classList.add("none");
+    $("a-act").textContent = "fly-drone";
+  } else {
     slotK.textContent = shown.act === "hold" ? `hold · ${shown.because}` : `${shown.act} · ${shown.because}`;
     slotK.classList.remove("none");
     $("a-act").textContent = `fly-drone · ${ageText(age(shown, now))}`;

@@ -88,11 +88,15 @@ def main() -> int:
     silent = RUNTIME / f"take-{stamp}.mp4"
     final = RECORDINGS / f"ri-nervous-system-{stamp}.mp4"
 
+    print("warm-up: start all four pipelines, see them run")
+    conductor.warm_up()
     print("zero state")
     conductor.reset()
     browser("open", url("PORT", "/"))
     browser("set", "viewport", "1920", "1080")
     time.sleep(4)
+    conductor.post(url("PORT", "/api/reset"), {})  # anything that landed late
+    time.sleep(1)
 
     print(f"recording {final.name}")
     browser("record", "start", str(silent))

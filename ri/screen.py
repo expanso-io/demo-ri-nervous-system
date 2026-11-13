@@ -71,6 +71,17 @@ class Board:
         self.decision_count = 0
         self.started = time.time()
 
+    def reset(self) -> None:
+        """Back to a true zero state for the next take: no messages, no counts."""
+        with self.lock:
+            for node in self.nodes.values():
+                node["sent"] = 0
+            self.latest.clear()
+            self.act = None
+            self.acts.clear()
+            self.decision_bytes = 0
+            self.decision_count = 0
+
     def pulse(self, kind: str, node: str) -> None:
         self.pulse_seq += 1
         self.pulses.append({"id": self.pulse_seq, "kind": kind, "node": node, "t": time.time()})
@@ -214,6 +225,9 @@ def make_handler(board: Board) -> type[BaseHTTPRequestHandler]:
                     with board.lock:
                         board.scene.update(body)
                     self._json(200, board.scene)
+                elif self.path == "/api/reset":
+                    board.reset()
+                    self._json(200, {"reset": True})
                 elif self.path == "/api/kill":
                     self._json(200, post(url("FLIGHT_PORT", "/kill"), {}))
                 elif self.path == "/api/link":

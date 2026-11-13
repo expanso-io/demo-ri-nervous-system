@@ -106,11 +106,26 @@ ARC: tuple[Cue, ...] = (
 )
 
 
+def warm_up() -> None:
+    """Prove the rig end to end before a take: start, see all four run, stop.
+
+    Freshly started Edge agents take tens of seconds to connect to Expanso
+    Cloud; a start sent before then waits, and the take loses its first
+    beats. This is the warm-up the recording script asks for, done by machine.
+    """
+    start_pipelines()
+    if not cloud.wait_running(4, 180):
+        raise SystemExit("the four pipelines never all reported running; check .runtime/edge-*.log")
+
+
 def reset() -> None:
     """A true zero state: pipelines stopped, drone dark, screen at the hook."""
     for job in cloud.JOBS:
         cloud.stop(job)
+    if not cloud.wait_running(0, 60):
+        raise SystemExit("pipelines still running after stop; not a zero state")
     post(url("FLIGHT_PORT", "/reset"), {})
+    post(url("PORT", "/api/reset"), {})
     camera("down")()
     scene("hook")()
 
