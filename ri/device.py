@@ -226,7 +226,7 @@ class AudioDevice(Device):
 
 class ClapDevice(AudioDevice):
     MIN_CONFIDENCE = 0.5
-    REFRACTORY_S = 2.0
+    REFRACTORY_S = 3.5  # one round of applause is one clap
 
     def __init__(self) -> None:
         super().__init__("clap")

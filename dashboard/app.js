@@ -392,7 +392,12 @@ function renderDecide(now) {
 }
 
 function renderHistory(now) {
-  const real = (state.acts || []).filter((a) => a.act !== "hold").slice(-5).reverse();
+  const real = (state.acts || [])
+    .filter((a) => a.act !== "hold")
+    .filter((a, i, all) => i === 0 || a.act !== all[i - 1].act || a.because !== all[i - 1].because)
+    .slice(-5)
+    .reverse();
+
   const list = $("history");
   const key = real.map((a) => a.seen_at).join(",");
 
