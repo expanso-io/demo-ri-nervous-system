@@ -2,45 +2,133 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=1920, initial-scale=1">
 <title>The Drone With a Nervous System</title>
 <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-<header>
-  <h1>The Drone With a Nervous System</h1>
-  <span class="pill" data-state="on">ORCHESTRATED BY EXPANSO CLOUD</span>
+<body data-beat="hook">
+<a class="skip-link" href="#shelf">Skip to the messages</a>
+
+<header class="mast">
+  <h1>The drone with a nervous system</h1>
+  <p class="prompt" id="prompt" aria-live="polite"></p>
 </header>
 
-<main>
-  <section class="stage" id="stage">
-    <canvas id="flow"></canvas>
-    <div class="node n-src" data-cast="source"><h3>source</h3><div class="big" id="src-rate">0</div><div class="l">msgs/s raw</div></div>
-    <div class="node n-edge" data-cast="edge"><span class="glyph expanso" aria-hidden="true"></span><h3>Expanso edge</h3><div class="big" id="edge-rate">0</div><div class="l">msgs/s forwarded</div></div>
-    <div class="node node-orch n-cloud" data-cast="orchestrator"><h3>Expanso Cloud</h3><div class="l">deploys · status · retries</div></div>
-    <div class="node n-sink" data-cast="dest"><h3>destination</h3><div class="big" id="sink-rows">0</div><div class="l">rows landed</div></div>
+<main class="stage" id="stage">
+  <canvas id="flow" aria-hidden="true"></canvas>
+
+  <div class="col-label" style="left:48px">senses</div>
+  <div class="col-label" style="left:560px">Expanso nodes</div>
+  <div class="col-label" style="left:1060px">decide</div>
+  <div class="col-label" style="left:1520px">act</div>
+
+  <section class="cloud" id="cloud" data-cast="orchestrator">
+    <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.2 9.1 4.5 4.5 0 0 0 7 18z"/></svg>
+    <span class="cloud-name">Expanso Cloud</span>
+    <span class="cloud-stat" id="cloud-nodes">0 of 4 nodes joined</span>
+    <span class="cloud-stat" id="cloud-jobs">pipelines off</span>
   </section>
 
-  <section class="tiles">
-    <div class="tile"><div class="k" id="k1">0</div><div class="l">events / sec</div></div>
-    <div class="tile"><div class="k ok" id="k2">0%</div><div class="l">kept at the edge</div></div>
-    <div class="tile"><div class="k warn" id="k3">0</div><div class="l">pending</div></div>
-    <div class="tile"><div class="k" id="k4">0</div><div class="l">nodes reporting</div></div>
+  <section class="sense" id="src-clap" data-sense="clap" style="top:150px">
+    <svg class="device" viewBox="0 0 48 48" aria-hidden="true"><rect x="17" y="5" width="14" height="24" rx="7"/><path d="M11 22a13 13 0 0 0 26 0M24 35v8M16 43h16"/></svg>
+    <div class="sense-text"><h2>room mic</h2><div class="meter"><i id="lvl-clap"></i></div><p class="l" id="cap-clap">listening</p></div>
+  </section>
+  <section class="sense" id="src-word" data-sense="word" style="top:360px">
+    <svg class="device" viewBox="0 0 48 48" aria-hidden="true"><circle cx="30" cy="13" r="8"/><path d="M24.5 18.5l-12 18a3 3 0 0 0 4.2 4.2l18-12"/><path d="M25 8l10 10"/></svg>
+    <div class="sense-text"><h2>handheld mic</h2><div class="meter"><i id="lvl-word"></i></div><p class="l" id="cap-word">listening</p></div>
+  </section>
+  <section class="sense" id="src-hands" data-sense="hands" style="top:570px">
+    <svg class="device" viewBox="0 0 48 48" aria-hidden="true"><rect x="5" y="14" width="28" height="20" rx="3"/><path d="M33 20l10-5v18l-10-5z"/><circle cx="19" cy="24" r="5"/></svg>
+    <div class="sense-text"><h2>camera</h2><div class="meter"><i id="lvl-hands"></i></div><p class="l" id="cap-hands">watching</p></div>
   </section>
 
-  <section class="panel">
-    <h2>live events</h2>
-    <ul class="feed" id="feed"><li class="empty">awaiting motion</li></ul>
+  <section class="node" id="node-hear-clap" data-node="hear-clap" data-live="off" style="top:150px" title="ctrl-click: cut this device's link">
+    <span class="light" aria-hidden="true"></span>
+    <h3>hear-clap</h3>
+    <div class="big" id="n-hear-clap">0</div>
+    <p class="l">claps sent · <span class="state" id="s-hear-clap">off</span></p>
   </section>
-  <section class="panel" id="shelf">
-    <h2>pipeline</h2>
-    <pre class="yaml">input: source
-pipeline: Expanso edge
-output: destination</pre>
+  <section class="node" id="node-hear-commands" data-node="hear-commands" data-live="off" style="top:360px" title="ctrl-click: cut this device's link">
+    <span class="light" aria-hidden="true"></span>
+    <h3>hear-commands</h3>
+    <div class="big" id="n-hear-commands">0</div>
+    <p class="l">words sent · <span class="state" id="s-hear-commands">off</span></p>
+  </section>
+  <section class="node" id="node-see-hands" data-node="see-hands" data-live="off" style="top:570px" title="ctrl-click: cut this device's link">
+    <span class="light" aria-hidden="true"></span>
+    <h3>see-hands</h3>
+    <div class="big" id="n-see-hands">0</div>
+    <p class="l">counts sent · <span class="state" id="s-see-hands">off</span></p>
+  </section>
+
+  <section class="node decide" id="node-fly-drone" data-node="fly-drone" data-live="off">
+    <span class="light" aria-hidden="true"></span>
+    <h3>fly-drone</h3>
+    <ol class="rules" id="rules">
+      <li data-rule="land"><b>land</b><span>more than half the hands</span></li>
+      <li data-rule="stop"><b>stop</b><span>the word stop</span></li>
+      <li data-rule="move"><b>move</b><span>the word up or down</span></li>
+      <li data-rule="wake"><b>wake</b><span>a clap</span></li>
+    </ol>
+    <p class="because" id="because">off</p>
+    <p class="l"><span id="n-fly-drone">0</span> decisions · fresh for 3 s, stale holds</p>
+    <ol class="history" id="history" aria-label="what it did, newest first"></ol>
+  </section>
+
+  <section class="drone-card" id="drone" data-cast="dest" data-phase="dark">
+    <div class="scale" aria-hidden="true">
+      <span style="bottom:0%">0</span><span style="bottom:25%">0.5</span>
+      <span style="bottom:50%">1.0</span><span style="bottom:75%">1.5</span>
+      <span style="bottom:100%">2.0 m</span>
+    </div>
+    <div class="air" id="air">
+      <i class="target" id="target"></i>
+      <svg class="quad" id="quad" viewBox="0 0 220 80" aria-label="the drone">
+        <g class="props">
+          <ellipse class="prop" cx="38" cy="16" rx="30" ry="4"/>
+          <ellipse class="prop" cx="182" cy="16" rx="30" ry="4"/>
+        </g>
+        <path class="arm" d="M38 22v10h144V22"/>
+        <rect class="hub" x="34" y="18" width="8" height="8" rx="2"/>
+        <rect class="hub" x="178" y="18" width="8" height="8" rx="2"/>
+        <rect class="body" x="70" y="28" width="80" height="26" rx="8"/>
+        <rect class="led" id="led" x="80" y="56" width="60" height="6" rx="3"/>
+        <path class="skid" d="M76 54l-8 18M144 54l8 18M60 72h28M132 72h28"/>
+      </svg>
+      <i class="floor"></i>
+    </div>
+    <p class="phase" id="phase">dark</p>
+    <p class="l" id="alt">0.0 m</p>
+  </section>
+
+  <section class="reveal" id="reveal" aria-hidden="true">
+    <h2>Everything that travelled between the devices</h2>
+    <div class="cards" id="reveal-cards"></div>
+    <p class="kept" id="kept"></p>
+  </section>
+
+  <section class="handoff" id="handoff" aria-hidden="true">
+    <p class="line">Three devices, three senses, one job.</p>
+    <p class="sub">Nothing left the room but decisions.</p>
   </section>
 </main>
 
-<script src="hero.js"></script>
+<section class="shelf" id="shelf" aria-label="the latest message from each sense">
+  <h2>messages <span class="l">click to inspect</span></h2>
+  <button class="slot" data-slot="clap"><span class="k none" id="m-clap">no clap yet</span><span class="l" id="a-clap">hear-clap</span></button>
+  <button class="slot" data-slot="word"><span class="k none" id="m-word">no word yet</span><span class="l" id="a-word">hear-commands</span></button>
+  <button class="slot" data-slot="hands"><span class="k none" id="m-hands">no count yet</span><span class="l" id="a-hands">see-hands</span></button>
+  <button class="slot act" data-slot="act"><span class="k none" id="m-act">no act yet</span><span class="l" id="a-act">fly-drone</span></button>
+</section>
+
+<div class="inspect" id="inspect" data-open="false" role="dialog" aria-modal="true" aria-labelledby="inspect-title">
+  <div class="inspect-box">
+    <h2 id="inspect-title">message</h2>
+    <pre class="json" id="inspect-json"></pre>
+    <p class="l">the whole message, as it left the device · Esc or click to close</p>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>

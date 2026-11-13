@@ -1,0 +1,6 @@
+Newsreader is bundled here so the screen renders the same offline, with no
+network request. It is licensed under the SIL Open Font License, Version 1.1
+(https://openfontlicense.org).
+
+Copyright 2020 The Newsreader Project Authors
+  (https://github.com/productiontype/Newsreader)

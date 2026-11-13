@@ -28,8 +28,8 @@ SCENES: dict[str, int] = {
     "down": 0,
     "idle": 1,
     "half": 7,
-    "majority": 13,
-    "conflict": 14,
+    "majority": 14,
+    "conflict": 15,
 }
 
 

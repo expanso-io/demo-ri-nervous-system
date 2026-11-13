@@ -102,6 +102,7 @@ class Device:
         self.decisions = 0
         self.seq = 0
         self.windows = 0
+        self.captured_bytes = 0
         self.level = 0.0
         self.bus = Bus(f"device-{self.name}").start()
         self.ingest = f"http://127.0.0.1:{port(self.spec['ingest'])}/frames"
@@ -127,6 +128,7 @@ class Device:
 
     # --- pipeline input -------------------------------------------------
     def post(self, body: bytes, content_type: str) -> None:
+        self.captured_bytes += len(body)
         if self.link_cut:
             self.dropped += 1
             return
@@ -149,6 +151,7 @@ class Device:
             "dropped": self.dropped,
             "windows": self.windows,
             "decisions": self.decisions,
+            "captured_bytes": self.captured_bytes,
             "link": "cut" if self.link_cut else "ok",
             "t": round(time.time(), 3),
         }
@@ -308,7 +311,8 @@ class HandsDevice(Device):
             small = self.cv2.resize(frame, (96, 60)).astype(np.float32)
             if self.previous is not None:
                 motion = float(np.abs(small - self.previous).mean())
-                self.level = max(0.0, min(1.0, 0.25 + motion / 6.0))
+                # idle crowd shuffle reads about 12, hands going up about 20
+                self.level = max(0.0, min(1.0, (motion - 6.0) / 24.0))
             self.previous = small
             ok, jpeg = self.cv2.imencode(".jpg", frame, [self.cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:

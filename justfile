@@ -1,36 +1,66 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 port := `uv run --no-project scripts/demo-ports.py resolve --demo-dir . --allow-bound --format json | jq -r .PORT`
-gateway_port := `uv run --no-project scripts/demo-ports.py resolve --demo-dir . --allow-bound --format json | jq -r .GATEWAY_PORT`
-export MODEL_GATEWAY_URL := "http://127.0.0.1:" + gateway_port
+cloud := "uv run --no-project scripts/cloud_env.py --"
+nodes := "hear-clap hear-commands see-hands fly-drone"
 
 _default:
     @just --list
 
-# start the dashboard (PID in .runtime/)
+# Broker, three sense devices, flight service, screen, four Expanso Edge
+# agents. The four jobs are deployed through Expanso Cloud and left stopped.
 up:
-    @uv run --no-project scripts/demo-ports.py resolve --demo-dir . --service PORT >/dev/null
-    mkdir -p .runtime
-    nohup uv run -s scripts/dashboard.py --port {{port}} > .runtime/dashboard.log 2>&1 & echo $! > .runtime/dashboard.pid
-    @echo "dashboard on http://localhost:{{port}}"
+    uv run python -m ri.stack up
 
-down: gateway-down
-    -[ -f .runtime/dashboard.pid ] && kill "$(cat .runtime/dashboard.pid)" 2>/dev/null && rm .runtime/dashboard.pid
-    @echo "down"
+# Stop every process, free every port, delete the four Cloud jobs.
+down:
+    uv run python -m ri.stack down
 
 status:
-    @[ -f .runtime/dashboard.pid ] && ps -p "$(cat .runtime/dashboard.pid)" > /dev/null && echo "up (pid $(cat .runtime/dashboard.pid))" || echo "down"
+    uv run python -m ri.stack status
 
-# Shared Expanso Cloud workspace. Separate workspaces require explicit flags
-# on expanso-demo-init.py so the override cannot be mistaken for the default.
+# Drive the five-minute arc against a rig that is already up.
+run:
+    uv run python -m ri.conductor
+
+# Record the whole run headless into recordings/, then check every beat.
+record-sim: up
+    uv run python -m ri.record || { just down; exit 1; }
+    just down
+
+# Enrol the four nodes into the shared Expanso Cloud workspace. Identities
+# land in ./.expanso-edge/<node> (ignored, owner-only); no ~/.expanso.
 workspace-init:
-    @uv run -s ../_demo-kit/expanso-demo-init.py .
+    @git check-ignore -q .expanso-edge/ && git check-ignore -q .expanso-cli/ || { echo "FAIL: .expanso-edge/ and .expanso-cli/ must be ignored"; exit 1; }
+    @mkdir -p .expanso-edge && chmod 700 .expanso-edge
+    @for n in {{nodes}}; do \
+      if [ -f ".expanso-edge/$n/auth/credentials.creds" ]; then echo "$n: existing identity"; \
+      else uv run --no-project scripts/cloud_env.py --with-bootstrap -- expanso-edge bootstrap --config "edge/$n.yaml" --data-dir ".expanso-edge/$n" > /dev/null && echo "$n: enrolled"; fi; \
+    done
 
 workspace-check:
-    @uv run -s ../_demo-kit/expanso-demo-init.py . --check
+    @{{cloud}} expanso-cli node list --label demo=demo-ri-nervous-system
+
+# Camera fixtures: openly licensed people photos, cut into tiles at build
+# time into fixtures/build/ (never committed). Needs network once.
+fixtures:
+    uv run python -m scripts.build_fixtures
+
+# Retrain the keyword model from Speech Commands (CC BY 4.0, ~2.3 GB cache).
+kws-train data="~/.cache/demo-ri-nervous-system/sc":
+    uv run python -m scripts.train_kws --data {{data}}
+
+# Delete the Speech Commands download once the model is trained.
+kws-clean:
+    rm -rf ~/.cache/demo-ri-nervous-system
+
+lint:
+    uv run ruff check .
+    uv run ruff format --check .
+    uv run mypy
 
 test:
-    uv run -s scripts/dashboard.py --check
+    uv run pytest -q
 
 video-check:
     @uv run -s ../_demo-kit/lint-demo-ui.py . --video-strict
@@ -46,45 +76,21 @@ review-shots:
 # Expanso pipelines: syntax, then the all-demos rules (logs, a real output,
 # short lines, no blank lines in config, generate only for timers).
 validate:
-    @command -v expanso-edge > /dev/null || { echo "skip: expanso-edge not installed"; exit 0; }
+    @command -v expanso-edge > /dev/null || { echo "FAIL: expanso-edge not installed"; exit 1; }
     expanso-edge validate pipelines/*.yaml
 
 pipeline-check:
     @uv run -s ../_demo-kit/lint-demo-pipelines.py .
 
-# Models: ask the kit's gateway, never a provider (../_demo-kit/README.md).
-# Fixture replay by default; live needs GATEWAY_MODE=live GATEWAY_BACKEND=<cli>.
-gateway-up:
-    @uv run --no-project scripts/demo-ports.py resolve --demo-dir . --service PORT >/dev/null
-    mkdir -p .runtime
-    nohup uv run -s ../_demo-kit/model-gateway.py serve --config model-gateway.toml --port {{gateway_port}} > .runtime/gateway.log 2>&1 & echo $! > .runtime/gateway.pid
-    @echo "model gateway on http://127.0.0.1:{{gateway_port}} (${GATEWAY_MODE:-fixture})"
-
-gateway-down:
-    -[ -f .runtime/gateway.pid ] && kill "$(cat .runtime/gateway.pid)" 2>/dev/null && rm .runtime/gateway.pid
-
-gateway-status:
-    @uv run -s ../_demo-kit/model-gateway.py status --config model-gateway.toml --port {{gateway_port}}
-
-# fails if any file calls a model provider directly instead of the gateway
+# fails if any file calls a model provider directly
 provider-check:
     @uv run -s ../_demo-kit/lint-demo-providers.py .
 
-# Drive the pipeline's input from outside: the demo's data source.
-produce rate="2":
-    uv run -s scripts/producer.py --rate {{rate}}
-
-check: test validate pipeline-check provider-check video-check motion-check
+check: lint test validate pipeline-check provider-check video-check motion-check clean-check
 
 # everything that must be true before a take: gates + live endpoint + checklist
 record-check: check
-    curl -fsS "http://localhost:{{port}}/api/state" > /dev/null || { echo "FAIL: dashboard not reachable — just up first"; exit 1; }
-    @echo ""
-    @echo "RECORD CHECKLIST"
-    @echo "  [ ] demo-guidance/RECORDING.md read; console set to dark (matches this board); resolution dropped"
-    @echo "  [ ] Chrome --app, no browser chrome in frame"
-    @echo "  [ ] true zero state confirmed (no finished session on screen)"
-    @echo "  [ ] dvv preflight --url http://localhost:{{port}} passed"
+    curl -fsS "http://localhost:{{port}}/api/state" > /dev/null || { echo "FAIL: screen not reachable; just up first"; exit 1; }
 
 # human story/proof declaration; validates only and never starts anything
 recording-preflight:
@@ -93,4 +99,9 @@ recording-preflight:
 # prohibited names never reach a take (add customer/competitor names here)
 clean-check:
     @if rg -il '[b]acalhau' --glob '!justfile' . ; then echo "FAIL: prohibited name in tree"; exit 1; fi
+    @just audience-words dashboard ri/conductor.py
     @echo "clean"
+
+# Words the audience must never read on the screen or in a prompt line.
+audience-words +paths:
+    @if rg -n -i '\b(simulat\w*|illustrative|mock\w*|replay\w*|pre-?recorded|fake|live demo)\b' {{paths}}; then echo "FAIL: audience-facing word above"; exit 1; fi

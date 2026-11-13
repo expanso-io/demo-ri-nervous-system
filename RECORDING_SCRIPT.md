@@ -1,108 +1,122 @@
-# Recording script — <what this demo shows>
+# Recording script: the drone with a nervous system
 
-One take, about 2:00 end to end, with roughly 110 seconds of speech in it. Five
-beats. Every screen state below is produced by the demo on its own clock; the
-only thing the operator does is start it.
-
-Copy this to `RECORDING_SCRIPT.md` in the demo root and fill it in. `just
-video-check` fails without it.
+One take, five minutes, seven beats. This is the rehearsal take with no
+human on stage: `ri.conductor` plays the room (a clap, a volunteer's words,
+hands going up) into the real devices, and everything after that is the real
+models, the real Expanso pipelines and the real rule table. The spoken lines
+are David's, for when a human narrates over it.
 
 ## Before you roll
 
 ```bash
-just up      # warm-up: prove it renders and the Edge is healthy
+just up      # rig up, four jobs deployed in Expanso Cloud and stopped
 just down
 ```
 
-Do the warm-up. The first `uv run` of a session resolves dependencies and the
-first Edge start builds its data directory. Neither belongs in a take.
+Do the warm-up once. The first run of a session loads three models and starts
+four Edge agents; neither belongs in a take.
 
-Then run the environment preflight — Chrome in `--app` mode, display scaled
-down, Cloud console matched to the demo's declared theme, notifications off:
+Recording surface: `http://127.0.0.1:20170/` at 1920x1080. The headless take
+is `just record-sim` (see `recordings/README.md`).
 
-```bash
-~/.claude/skills/demo-video-verify/scripts/dvv preflight --url <DEMO_URL>
-```
-
-Recording surface: `<DEMO_URL>` full screen.
-
-**Timing.** Offsets are seconds after `<the anchor event>`. The driver waits for
-that anchor rather than guessing, so a slipped take runs longer but never
-desynchronises.
-
-**Pace.** The spoken text below is ~280 words. Beat spacing assumes a brisk 155
-words a minute. Slow down and the beats arrive before you do.
+**Timing.** Offsets are seconds after the conductor's start. Each beat's time
+comes from BUILD_SPEC part 2; `ri.arccheck` fails the take if a beat misses
+its window.
 
 ---
 
-## Beat 1 — <NAME> · 0:00–0:15
+## Beat 1: Hook · 0:00–0:30
 
-**Screen state before you speak.** <What must be true on screen.>
+**Screen state before you speak.** Drone dark on the table. The three senses
+are already sensing; the Expanso nodes are grey. At 0:08 the four pipelines
+start in Expanso Cloud and the nodes turn green.
 
-**Driver** — <command, or "nothing to type">
-
-> <The contradiction. Not a preamble — state the problem as something that
-> cannot be true, or state the conclusion. Never "So one thing we get a lot of
-> questions about is…">
-
----
-
-## Beat 2 — <NAME> · 0:15–0:40
-
-**Screen state before you speak.** <...>
-
-> <One sentence per idea. Name the pain before the feature.>
+> Every AI you have used lives in a building the size of a football pitch, a
+> long way from here. This one's intelligence lives on this table. And in you.
 
 ---
 
-## Beat 3 — <NAME> · 0:40–1:05
+## Beat 2: Clap to wake it · 0:30–1:15
 
-**Screen state before you speak.** <The failure mode firing — link drop,
-bad reading quarantined, threshold crossed. Something going wrong on purpose is
-the most persuasive thing in any demo.>
+**Screen state before you speak.** At 0:33 the room claps. hear-clap sends
+one message, the wake rule lights, the drone rises to hover at 1.0 m with
+white LEDs.
 
-> <...>
-
----
-
-## Beat 4 — <NAME> · 1:05–1:30
-
-**Screen state before you speak.** <The payoff, with the headline number
-rendered.>
-
-> <**Say the number out loud, slowly, then stop talking for a beat.** Every
-> figure rendered on screen must be spoken. If it isn't worth saying, don't
-> render it.>
+> That device heard a clap and sent one word. Not the sound. One word.
 
 ---
 
-## Beat 5 — CLOSE · 1:30–2:00
+## Beat 3: Shout up or down · 1:15–2:15
 
-**Screen state before you speak.** <Final state, number still visible.>
+**Screen state before you speak.** A volunteer says up, up, down, down, up.
+Each word is one message; the drone climbs in blue and descends in amber,
+inside its 1.0 to 2.0 m envelope.
 
-> <The closing line. Write it here and say it verbatim — it is the sentence
-> people repeat.>
+> This device knows three words. It does not know English. It does not need
+> to.
+
+---
+
+## Beat 4: Hands up to land it · 2:15–3:15
+
+**Screen state before you speak.** Some hands go up: the decide node says
+"waiting" and the drone holds. Then most hands go up and it lands in red,
+parks, LEDs breathing green. At 3:00 a clap wakes it again.
+
+> Half of you want it down. It will not guess.
+
+---
+
+## Beat 5: Conflict · 3:15–3:50
+
+**Screen state before you speak.** Hands go up and the volunteer shouts up at
+the same time. The land rule lights, the move rule is struck through, and the
+reason reads "hands > word up". The drone lands.
+
+> Two instructions arrived. We wrote one rule: landing wins. That rule is the
+> whole safety system.
+
+---
+
+## Beat 6: Reveal · 3:50–4:30
+
+**Screen state before you speak.** Three message cards: the last clap, the
+last word, the last hand count, exactly as they left their devices, and how
+much stayed on the devices against how much left them.
+
+> Here is everything that travelled between these devices during that run. No
+> picture of you left that camera. No sound left that microphone. Three
+> decisions did.
+
+---
+
+## Beat 7: Handoff · 4:30–5:00
+
+**Screen state before you speak.** "Three devices, three senses, one job."
+
+> Three devices, three senses, one job, and nothing left the room but
+> decisions.
 
 ---
 
 ## Required lines
 
-Anything listed here must appear in the take. `demo-video-verify` checks the
-transcript against them.
-
-- "<the headline number, spoken>"
-- "<the closing line>"
+- "That device heard a clap and sent one word."
+- "Landing wins. That rule is the whole safety system."
+- "Nothing left the room but decisions."
 
 ## Prohibited
 
-Never spoken or shown: [B]acalhau, program names, classification-adjacent claims,
-third-party vendor names. Every quantitative claim either cites a public source
-in `docs/RESEARCH.md` or is introduced as representative.
+Never spoken or shown: the name of the open-source project underneath,
+program names, classification-adjacent claims, third-party vendor names,
+details of the lecture this demo appears in. Every quantitative claim either
+cites a public source in `docs/RESEARCH.md` or is introduced as
+representative.
 
 ## After the take
 
 ```bash
-~/.claude/skills/demo-video-verify/scripts/dvv verify <VIDEO> --script RECORDING_SCRIPT.md
+uv run python -m ri.arccheck report
 ```
 
-Non-zero exit means it is not publishable yet.
+Non-zero exit means a beat was missed and the take is not usable.

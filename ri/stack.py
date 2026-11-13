@@ -193,7 +193,7 @@ def down(args: argparse.Namespace) -> int:
     if busy or left:
         print(f"still bound: {busy or '-'}; pid files: {left or '-'}")
         return 1
-    print("down: no processes, no ports, no Cloud jobs")
+    print("down: no processes, no ports" + ("" if args.keep_jobs else ", no Cloud jobs"))
     return 0
 
 

@@ -61,9 +61,14 @@ class Board:
         self.act: dict[str, Any] | None = None
         self.acts: deque[dict[str, Any]] = deque(maxlen=8)
         self.drone: dict[str, Any] = {}
-        self.scene: dict[str, Any] = {"beat": "hook", "prompt": "", "reveal": False}
+        self.scene: dict[str, Any] = {
+            "beat": "hook",
+            "prompt": "This drone has no brain of its own. You are its nervous system.",
+        }
         self.pulses: deque[dict[str, Any]] = deque(maxlen=64)
         self.pulse_seq = 0
+        self.decision_bytes = 0
+        self.decision_count = 0
         self.started = time.time()
 
     def pulse(self, kind: str, node: str) -> None:
@@ -83,6 +88,8 @@ class Board:
                 body["raw"] = payload.decode()
                 body["seen_at"] = time.time()
                 self.latest[sense] = body
+                self.decision_bytes += len(payload)
+                self.decision_count += 1
                 node = PIPELINE_FOR.get(sense, sense)  # type: ignore[call-overload]
                 self.nodes[node]["sent"] += 1
                 self.pulse("sense", node)
@@ -125,6 +132,11 @@ class Board:
                 "drone": self.drone,
                 "scene": self.scene,
                 "pulses": list(self.pulses),
+                "kept": {
+                    "raw_bytes": sum(d.get("captured_bytes", 0) for d in self.devices.values()),
+                    "decision_bytes": self.decision_bytes,
+                    "decisions": self.decision_count,
+                },
             }
 
 
