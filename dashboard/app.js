@@ -647,7 +647,7 @@ function label(sense, m) {
 
   if (sense === "word") return `${m.value} ${m.confidence.toFixed(2)}`;
 
-  return `hands ${Math.round(m.share * 100)}%`;
+  return `${m.up ?? 0} of ${m.seen ?? 0} hands`;
 }
 
 const PHASE = {
