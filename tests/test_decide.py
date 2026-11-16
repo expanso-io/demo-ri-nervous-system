@@ -70,11 +70,19 @@ def test_envelope_ceiling_and_floor_hold() -> None:
     assert d.decide(drone(target=1.0), NOW).because == "lowest safe height"
 
 
-def test_words_do_nothing_while_asleep() -> None:
+def test_up_wakes_a_sleeping_drone() -> None:
     d = Decider()
     d.observe(word("up"))
     action = d.decide(drone("dark", 0.0), NOW)
-    assert (action.act, action.because) == ("hold", "asleep: clap to wake")
+    assert (action.act, action.because, action.rule) == ("wake", "word up", "wake")
+    assert d.decide(drone("dark", 0.0), NOW).act == "hold"
+
+
+def test_other_words_do_nothing_while_asleep() -> None:
+    d = Decider()
+    d.observe(word("down"))
+    action = d.decide(drone("dark", 0.0), NOW)
+    assert (action.act, action.because) == ("hold", "asleep: say up to wake")
 
 
 def test_stop_beats_move() -> None:

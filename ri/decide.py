@@ -6,6 +6,7 @@
   holds instead. A late message cannot move the drone.
 * Land needs more than half of the voting block with at least 10 people seen.
 * Each word and each clap is acted on at most once.
+* The word up wakes a sleeping drone; each further up is one step higher.
 * When a land and a word arrive together, the land wins and the word is
   recorded as having lost. That rule is the whole safety system.
 
@@ -134,8 +135,13 @@ class Decider:
                 return Action("hold", "lowest safe height", "move", (word.label(),), t=now)
             return Action(act, f"word {word.value}", "move", (word.label(),), t=now)
 
-        # Rule 4, wake: a clap brings a dark or parked drone up to hover.
-        if not drone.airborne and drone.phase != "landing" and clap is not None:
+        # Rule 4, wake: the word up, or a clap, brings a dark or parked drone
+        # up to hover. Every further up is one more step of height (rule 3).
+        grounded = not drone.airborne and drone.phase != "landing"
+        if grounded and word is not None and word.value == "up":
+            self._consume(word, clap)
+            return Action("wake", "word up", "wake", (word.label(),), t=now)
+        if grounded and clap is not None:
             self._consume(clap)
             return Action("wake", "clap", "wake", (clap.label(),), t=now)
 
@@ -143,7 +149,7 @@ class Decider:
         self._consume(clap if drone.airborne else None)
         if word is not None and not drone.airborne:
             self._consume(word)
-            return Action("hold", "asleep: clap to wake", None, (word.label(),), t=now)
+            return Action("hold", "asleep: say up to wake", None, (word.label(),), t=now)
         if (
             drone.airborne
             and hands is not None

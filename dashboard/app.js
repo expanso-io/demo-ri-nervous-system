@@ -131,7 +131,7 @@ const FLIGHT_SPAN_S = 200;
 
 const CRAFT_START = 64;
 
-const TRAIL_LABEL = { wake: "clap", up: "up", down: "down", stop: "stop", land: "hands up" };
+const TRAIL_LABEL = { wake: "wake", up: "up", down: "down", stop: "stop", land: "hands up" };
 
 const AIRBORNE = ["taking_off", "hovering", "climbing", "descending", "landing"];
 
@@ -867,7 +867,7 @@ function renderDecide(now) {
 
   if (!act || idleHold) {
     $("why-label").textContent = "";
-    $("why").textContent = asleep && state.nodes["fly-drone"].live ? "clap to wake it" : "";
+    $("why").textContent = asleep && state.nodes["fly-drone"].live ? "say up to wake it" : "";
   } else {
     $("why-label").textContent = hold ? "holding" : `${shown.act}, because`;
     $("why").textContent = plainWhy(shown.because);
