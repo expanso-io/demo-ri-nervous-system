@@ -8,8 +8,16 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from ri.senses.clap import ClapDetector
-from ri.senses.hands import FrameCount, HandCounter, hands_up
+from ri.senses.clap import ClapDetector, ClapScore
+from ri.senses.hands import (
+    FrameCount,
+    HandCounter,
+    annotate_hands,
+    filter_people,
+    hand_boxes_from_pose,
+    hands_up,
+    parse_roi,
+)
 from ri.senses.kws import KeywordSpotter
 from ri.types import Array
 
@@ -109,3 +117,107 @@ def test_window_smooths_a_one_frame_flicker() -> None:
     reads = [(7, 19), (7, 19), (12, 19), (7, 19), (7, 19)]
     smoothed = [counter.add(FrameCount(up, seen, i * 0.2)) for i, (up, seen) in enumerate(reads)]
     assert [s.up for s in smoothed] == [7, 7, 7, 7, 7]
+    assert [s.raw_up for s in smoothed] == [7, 7, 12, 7, 7]
+    assert [s.raw_seen for s in smoothed] == [19, 19, 19, 19, 19]
+
+
+def test_clap_score_skips_tflite_when_onset_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    det = clap_detector()
+    called = False
+
+    def fail_invoke(_audio: Array) -> Array:
+        nonlocal called
+        called = True
+        return np.zeros(521, dtype=np.float32)
+
+    monkeypatch.setattr(det, "class_scores", fail_invoke)
+    t = np.arange(SR, dtype=np.float32) / SR
+    steady_tone = (0.05 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    res = det.score(steady_tone)
+    assert not called
+    assert not res.triggered()
+    assert ClapScore(0.8, True, 10.0, 0.05).triggered()
+    assert not ClapScore(0.4, True, 10.0, 0.05).triggered()
+
+
+def test_keyword_spotter_classify_gates_rms_and_margin() -> None:
+    kw = spotter()
+    for word in ("up", "down", "stop"):
+        match = kw.classify(load(f"word-{word}-1.wav"))
+        assert match.word == word
+        assert match.confidence >= 0.75
+        assert match.margin >= 0.25
+
+    quiet = np.random.default_rng(3).normal(0, 0.002, SR).astype(np.float32)
+    silent_match = kw.classify(quiet)
+    assert silent_match.word is None
+    assert silent_match.heard == "_silence_"
+
+    ambiguous = kw.classify(load("word-up-1.wav"), min_margin=0.9999)
+    assert ambiguous.word is None
+
+
+def test_roi_filtering_and_shoulder_span_margin() -> None:
+    assert parse_roi(None) is None
+    assert parse_roi("full") is None
+    assert parse_roi("0.1,0.2,0.9,0.8") == (0.1, 0.2, 0.9, 0.8)
+    with pytest.raises(ValueError):
+        parse_roi("0.5,0.5,0.2,0.8")
+
+    # Person with shoulders spread 100px wide at y=200 -> 10% margin sets threshold y=190.
+    kp = np.zeros((17, 3), dtype=np.float32)
+    kp[5] = (50.0, 200.0, 0.9)
+    kp[6] = (150.0, 200.0, 0.9)
+    kp[9] = (50.0, 194.0, 0.9)  # barely above 200, but below 190
+    kp[10] = (150.0, 220.0, 0.9)
+    assert hands_up(kp[None], margin_ratio=0.0) == 1
+    assert hands_up(kp[None], margin_ratio=0.1) == 0
+
+    outside = person(100, 50)
+    outside[5] = (10.0, 100.0, 0.9)
+    outside[6] = (30.0, 100.0, 0.9)  # center x = 20
+    inside = person(100, 50)
+    inside[5] = (450.0, 100.0, 0.9)
+    inside[6] = (550.0, 100.0, 0.9)  # center x = 500
+    filtered = filter_people(
+        np.stack([outside, inside]),
+        roi=(0.2, 0.0, 0.9, 1.0),
+        shape=(1000, 1000),
+    )
+    assert len(filtered) == 1
+
+
+def test_hand_boxes_from_pose_and_annotate_hands() -> None:
+    kp = np.zeros((1, 17, 3), dtype=np.float32)
+    kp[0, 5] = (300.0, 300.0, 0.95)
+    kp[0, 6] = (420.0, 300.0, 0.95)
+    kp[0, 7] = (280.0, 220.0, 0.90)
+    kp[0, 9] = (270.0, 140.0, 0.92)  # left wrist raised above shoulder line
+    kp[0, 8] = (440.0, 360.0, 0.90)
+    kp[0, 10] = (450.0, 420.0, 0.92)  # right wrist lowered
+
+    boxes = hand_boxes_from_pose(kp, shape=(720, 1280), margin_ratio=0.05)
+    assert len(boxes) == 2
+    assert boxes[0].up is True
+    assert boxes[1].up is False
+    for box in boxes:
+        assert 0 <= box.x1 < box.x2 < 1280
+        assert 0 <= box.y1 < box.y2 < 720
+
+    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    drawn = annotate_hands(frame, boxes)
+    assert frame.sum() == 0
+    assert drawn.shape == frame.shape
+    assert drawn.sum() > 0
+
+
+def test_close_up_arm_boxes_work_without_confident_shoulders() -> None:
+    kp = np.zeros((1, 17, 3), dtype=np.float32)
+    kp[0, 6] = (250.0, 14.0, 0.19)  # shoulder clipped at top / low conf
+    kp[0, 8] = (195.0, 186.0, 0.47)  # elbow
+    kp[0, 10] = (305.0, 267.0, 0.29)  # wrist just below KEYPOINT_MIN
+
+    assert hand_boxes_from_pose(kp, shape=(380, 420)) == []
+    boxes = hand_boxes_from_pose(kp, shape=(380, 420), allow_close_arm=True)
+    assert len(boxes) == 1
+    assert boxes[0].up is False

@@ -15,7 +15,7 @@ config:
   input:
     label: sense_decisions
     mqtt:
-      urls: ['tcp://127.0.0.1:${RI_MQTT_PORT:18021}']
+      urls: ['tcp://${RI_MQTT_HOST:127.0.0.1}:${RI_MQTT_PORT:18021}']
       topics: ['ri/sense/+']
       client_id: fly-drone
       qos: 1
@@ -28,7 +28,7 @@ config:
           message: 'in ${! meta("mqtt_topic") }: ${! content().string() }'
       - label: decide_node
         http:
-          url: 'http://127.0.0.1:${RI_FLIGHT_PORT:18022}/decide'
+          url: 'http://${RI_FLIGHT_HOST:127.0.0.1}:${RI_FLIGHT_PORT:18022}/decide'
           verb: POST
           headers:
             Content-Type: application/json
@@ -51,7 +51,7 @@ config:
   output:
     label: act_out
     mqtt:
-      urls: ['tcp://127.0.0.1:${RI_MQTT_PORT:18021}']
+      urls: ['tcp://${RI_MQTT_HOST:127.0.0.1}:${RI_MQTT_PORT:18021}']
       topic: ri/act
       client_id: fly-drone-act
       qos: 1

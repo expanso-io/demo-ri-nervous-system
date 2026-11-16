@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 import torch
+import torchaudio
 from torch import nn
 
 from ri.senses.kws import CLIP, LABELS, MODEL_PATH, KeywordNet, parameter_count
@@ -58,7 +59,7 @@ def build(root: Path, seed: int) -> dict[str, list[tuple[Path, int]]]:
         for wav in sorted(d.glob("*.wav")):
             rel = f"{d.name}/{wav.name}"
             part = "test" if rel in test else "val" if rel in val else "train"
-            keep = 0.12 if part == "train" else 0.06
+            keep = 0.35 if part == "train" else 0.15
             if rng.random() < keep:
                 parts[part].append((wav, unknown))
     return parts
@@ -90,11 +91,11 @@ def batch(
     for path, label in items:
         wave = load(path)
         if augment:
-            shift = int(rng.integers(-1600, 1600))
+            shift = int(rng.integers(-3200, 3200))
             wave = np.roll(wave, shift)
-            wave *= float(rng.uniform(0.4, 1.6))
-            if rng.random() < 0.8:
-                wave = wave + noise.sample(rng) * float(rng.uniform(0.0, 0.3))
+            wave *= float(rng.uniform(0.15, 1.8))
+            if rng.random() < 0.85:
+                wave = wave + noise.sample(rng) * float(rng.uniform(0.0, 0.35))
         waves.append(wave)
         labels.append(label)
     silence = LABELS.index("_silence_")
@@ -122,7 +123,7 @@ def evaluate(
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", type=Path, required=True)
-    ap.add_argument("--epochs", type=int, default=14)
+    ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", type=Path, default=MODEL_PATH)
     args = ap.parse_args()
@@ -135,6 +136,8 @@ def main() -> int:
     print({k: len(v) for k, v in parts.items()}, "device", device)
     model = KeywordNet().to(device)
     print("parameters", parameter_count(model))
+    freq_mask = torchaudio.transforms.FrequencyMasking(freq_mask_param=6).to(device)
+    time_mask = torchaudio.transforms.TimeMasking(time_mask_param=16).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=1e-3)
     steps = args.epochs * (len(parts["train"]) // 128 + 1)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=3e-3, total_steps=steps)
@@ -146,9 +149,12 @@ def main() -> int:
         random.Random(args.seed + epoch).shuffle(train)
         started = time.time()
         for i in range(0, len(train), 128):
-            x, y = batch(train[i : i + 128], noise, rng, augment=True, silence_share=0.1)
+            x, y = batch(train[i : i + 128], noise, rng, augment=True, silence_share=0.12)
             opt.zero_grad()
-            loss = loss_fn(model(x.to(device)), y.to(device))
+            with torch.no_grad():
+                feat = model.features(x.to(device))
+                feat = time_mask(freq_mask(feat.squeeze(1))).unsqueeze(1)
+            loss = loss_fn(model.forward_features(feat), y.to(device))
             loss.backward()
             opt.step()
             sched.step()

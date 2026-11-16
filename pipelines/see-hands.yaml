@@ -54,7 +54,7 @@ config:
   output:
     label: hands_to_decide
     mqtt:
-      urls: ['tcp://127.0.0.1:${RI_MQTT_PORT:18021}']
+      urls: ['tcp://${RI_MQTT_HOST:127.0.0.1}:${RI_MQTT_PORT:18021}']
       topic: ri/sense/hands
       client_id: see-hands
       qos: 1

@@ -6,10 +6,12 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "ai-edge-litert>=1.2",
     "amqtt==0.11.3",
+    "codrone-edu>=2.11",
     "numpy>=1.26,<2.3",
     "opencv-python-headless>=4.10",
     "paho-mqtt>=2.1",
     "scipy>=1.13",
+    "sounddevice>=0.5",
     "soundfile>=0.12",
     "torch>=2.4",
     "torchaudio>=2.4",

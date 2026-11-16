@@ -9,6 +9,7 @@ ri/device/<device> straight from the device: a level number, never audio.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -53,7 +54,8 @@ class Bus:
         self.handlers.append(handler)
 
     def start(self) -> Bus:
-        self.client.connect_async("127.0.0.1", port("MQTT_PORT"), keepalive=10)
+        host = os.environ.get("RI_MQTT_HOST", "127.0.0.1")
+        self.client.connect_async(host, port("MQTT_PORT"), keepalive=10)
         self.client.loop_start()
         return self
 

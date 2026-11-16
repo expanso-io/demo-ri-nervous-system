@@ -1,15 +1,16 @@
 # Recording script: the drone with a nervous system
 
 One take, five minutes, seven beats. This is the rehearsal take with no
-human on stage: `ri.conductor` plays the room (a clap, a volunteer's words,
-hands going up) into the real devices, and everything after that is the real
-models, the real Expanso pipelines and the real rule table. The spoken lines
-are David's, for when a human narrates over it.
+human on stage: `ri.conductor` plays the room cues (a clap, a volunteer's
+words, hands going up) into the real devices, and everything after that is the
+real models, the real Expanso pipelines and the real rule table. The spoken
+lines are David's, for when a human narrates over it.
 
 ## Before you roll
 
 ```bash
-just up      # rig up, four jobs deployed in Expanso Cloud and stopped
+just up      # rig up with fixtures, four jobs deployed in Expanso Cloud and stopped
+just up-cam  # optional: live OBSBOT Tiny 2 Lite camera feeding see-hands + stage cam
 just down
 ```
 
@@ -25,31 +26,35 @@ its window.
 
 ---
 
-## Beat 1: Hook · 0:00–0:30
+## Beat 1: Hook · 0:00-0:30
 
-**Screen state before you speak.** Drone dark on the table. The three senses
-are already sensing; the Expanso nodes are grey. At 0:08 the four pipelines
-start in Expanso Cloud and the nodes turn green.
+**Screen state before you speak.** Drone dark on the table. Both live stage
+senses show scrolling waveforms (`onset` chip and `UP/DOWN/STOP` vocabulary
+pills on `handheld mic`, motion waveform and quorum bar on `camera`, plus the
+live `stage cam` viewport in the Act card when running live camera); the
+Expanso nodes are grey. At 0:08 the four pipelines start in Expanso Cloud and
+the nodes turn green.
 
 > Every AI you have used lives in a building the size of a football pitch, a
 > long way from here. This one's intelligence lives on this table. And in you.
 
 ---
 
-## Beat 2: Clap to wake it · 0:30–1:15
+## Beat 2: Clap to wake it · 0:30-1:15
 
-**Screen state before you speak.** At 0:33 the room claps. hear-clap sends
-one message, the wake rule lights, the drone rises to hover at 1.0 m with
-white LEDs.
+**Screen state before you speak.** At 0:33 the room claps. The `onset` badge
+flashes on `handheld mic`, hear-clap sends one message, the wake rule lights
+`WINS`, and the drone rises to hover at 1.0 m with white LEDs.
 
 > That device heard a clap and sent one word. Not the sound. One word.
 
 ---
 
-## Beat 3: Shout up or down · 1:15–2:15
+## Beat 3: Shout up or down · 1:15-2:15
 
 **Screen state before you speak.** A volunteer says up, up, down, down, up.
-Each word is one message; the drone climbs in blue and descends in amber,
+Each recognized word lights its pill (`UP`, `DOWN`, or `STOP`), moves the
+`move` rule to `WINS`, and steers climbs in blue and descents in amber
 inside its 1.0 to 2.0 m envelope.
 
 > This device knows three words. It does not know English. It does not need
@@ -57,32 +62,36 @@ inside its 1.0 to 2.0 m envelope.
 
 ---
 
-## Beat 4: Hands up to land it · 2:15–3:15
+## Beat 4: Hands up to land it · 2:15-3:15
 
-**Screen state before you speak.** Some hands go up: the decide node says
-"waiting" and the drone holds. Then most hands go up and it lands in red,
-parks, LEDs breathing green. At 3:00 a clap wakes it again.
+**Screen state before you speak.** Some hands go up: the camera meter swaps to
+an amber quorum bar below the 50% threshold tick, `fly-drone` reads
+"waiting: N of M", and the drone holds. Then more than half go up: the bar
+crosses the tick in red, `land` lights `WINS`, and it lands, parks, LEDs
+breathing green. At 3:00 a clap wakes it again.
 
 > Half of you want it down. It will not guess.
 
 ---
 
-## Beat 5: Conflict · 3:15–3:50
+## Beat 5: Conflict · 3:15-3:50
 
 **Screen state before you speak.** Hands go up and the volunteer shouts up at
-the same time. The land rule lights, the move rule is struck through, and the
-reason reads "hands > word up". The drone lands.
+the same time. Both `land` (`WINS`) and `move` (`LOST`, struck through) appear
+in the rule table, and the reason reads `hands <share> > word up` (for example
+`hands 0.72 > word up`). The drone lands.
 
 > Two instructions arrived. We wrote one rule: landing wins. That rule is the
 > whole safety system.
 
 ---
 
-## Beat 6: Reveal · 3:50–4:30
+## Beat 6: Reveal · 3:50-4:30
 
-**Screen state before you speak.** Three message cards: the last clap, the
-last word, the last hand count, exactly as they left their devices, and how
-much stayed on the devices against how much left them.
+**Screen state before you speak.** Three message cards show the last clap,
+the last word, and the last hand count with byte sizes matching the shelf
+below, over the live total stayed on devices (in MB) against what left them
+(in KB).
 
 > Here is everything that travelled between these devices during that run. No
 > picture of you left that camera. No sound left that microphone. Three
@@ -90,7 +99,7 @@ much stayed on the devices against how much left them.
 
 ---
 
-## Beat 7: Handoff · 4:30–5:00
+## Beat 7: Handoff · 4:30-5:00
 
 **Screen state before you speak.** "Three devices, three senses, one job."
 

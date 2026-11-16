@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 
 from amqtt.broker import Broker
@@ -12,10 +13,12 @@ from ri.ports import port
 
 
 async def serve() -> None:
+    bind = os.environ.get("RI_MQTT_BIND", "127.0.0.1")
+    mqtt_port = port("MQTT_PORT")
     broker = Broker(
         {
             "listeners": {
-                "default": {"type": "tcp", "bind": f"127.0.0.1:{port('MQTT_PORT')}"},
+                "default": {"type": "tcp", "bind": f"{bind}:{mqtt_port}"},
             },
             "sys_interval": 0,
             "auth": {"allow-anonymous": True, "plugins": ["auth_anonymous"]},
@@ -23,7 +26,7 @@ async def serve() -> None:
         }
     )
     await broker.start()
-    print(f"mqtt broker on 127.0.0.1:{port('MQTT_PORT')}", flush=True)
+    print(f"mqtt broker on {bind}:{mqtt_port}", flush=True)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):

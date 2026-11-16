@@ -25,7 +25,8 @@ import urllib.request
 from pathlib import Path
 
 from ri import cloud
-from ri.ports import ROOT, RUNTIME, ports
+from ri.capture import resolve_camera_source
+from ri.ports import DEFAULT_CAMERA, DEFAULT_DRONE, DEFAULT_INPUT, DEFAULT_MIC, ROOT, RUNTIME, ports
 
 EDGE_API = {
     "hear-clap": "EDGE_API_CLAP",
@@ -35,12 +36,46 @@ EDGE_API = {
 }
 
 
-def environment() -> dict[str, str]:
+def environment(args: argparse.Namespace | None = None) -> dict[str, str]:
     env = dict(os.environ)
     resolved = ports()
     env["RI_PORTS"] = json.dumps(resolved)
     for name, value in resolved.items():
         env[f"RI_{name}"] = str(value)
+    env.setdefault("YOLO_CONFIG_DIR", str(RUNTIME / "ultralytics"))
+    if args is not None:
+        drone = getattr(args, "drone", None) or env.get("RI_DRONE") or DEFAULT_DRONE
+        input_mode = getattr(args, "input_mode", None) or env.get("RI_INPUT") or DEFAULT_INPUT
+        hands_input = getattr(args, "hands_input", None) or env.get("RI_HANDS_INPUT") or input_mode
+        stage_cam = getattr(args, "stage_cam", None)
+        if stage_cam is None:
+            stage_cam = env.get(
+                "RI_STAGE_CAM",
+                DEFAULT_CAMERA if (input_mode == "live" or hands_input == "live") else "none",
+            )
+        hands_device = getattr(args, "hands_device", None)
+        if hands_device is None:
+            hands_device = env.get(
+                "RI_HANDS_DEVICE",
+                DEFAULT_CAMERA if hands_input == "live" else "",
+            )
+        clap_device = getattr(args, "clap_device", None) or env.get("RI_CLAP_DEVICE") or DEFAULT_MIC
+        word_device = getattr(args, "word_device", None) or env.get("RI_WORD_DEVICE") or DEFAULT_MIC
+        env["RI_DRONE"] = drone
+        env["RI_INPUT"] = input_mode
+        env["RI_STAGE_CAM"] = stage_cam
+        if getattr(args, "hands_roi", None):
+            env["RI_HANDS_ROI"] = args.hands_roi
+        if getattr(args, "hands_input", None):
+            env["RI_HANDS_INPUT"] = args.hands_input
+        if hands_device:
+            env["RI_HANDS_DEVICE"] = hands_device
+        else:
+            env.pop("RI_HANDS_DEVICE", None)
+        env["RI_CLAP_DEVICE"] = clap_device
+        env["RI_WORD_DEVICE"] = word_device
+        if getattr(args, "mqtt_bind", None):
+            env["RI_MQTT_BIND"] = args.mqtt_bind
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
@@ -127,25 +162,56 @@ def wait_for(port: int, what: str, seconds: float = 60) -> None:
     raise SystemExit(f"{what} did not come up on 127.0.0.1:{port}; see .runtime/*.log")
 
 
+def screen_environment(env: dict[str, str]) -> dict[str, str]:
+    """Point screen stage_cam at device-hands HTTP preview when both share one camera."""
+    out = dict(env)
+    hands_live = (out.get("RI_HANDS_INPUT") or out.get("RI_INPUT", "fixture")) == "live"
+    stage_spec = out.get("RI_STAGE_CAM", "none").strip()
+    if not hands_live or stage_spec.lower() in ("", "none", "off", "false"):
+        return out
+    hands_spec = out.get("RI_HANDS_DEVICE", "").strip() or "0"
+    share = stage_spec.lower() in ("hands", "auto") or stage_spec.lower() == hands_spec.lower()
+    stage_name: str | None = None
+    if not share:
+        with contextlib.suppress(RuntimeError):
+            h_res, h_name = resolve_camera_source(hands_spec)
+            s_res, s_name = resolve_camera_source(stage_spec)
+            if h_res == s_res:
+                share = True
+                stage_name = s_name or h_name
+    else:
+        with contextlib.suppress(RuntimeError):
+            _, stage_name = resolve_camera_source(hands_spec)
+    if share:
+        hands_port = out.get("RI_HANDS_DEVICE_PORT") or str(ports()["HANDS_DEVICE_PORT"])
+        out["RI_STAGE_CAM"] = f"http://127.0.0.1:{hands_port}/preview.jpg"
+        out["RI_STAGE_CAM_NAME"] = stage_name or hands_spec
+    return out
+
+
 def up(args: argparse.Namespace) -> int:
     RUNTIME.mkdir(exist_ok=True)
     missing = [n for n in cloud.NODES if not (ROOT / ".expanso-edge" / n / "auth").exists()]
     if missing:
         raise SystemExit(f"no node identity for {', '.join(missing)}: just workspace-init")
-    env = environment()
+    env = environment(args)
     p = ports()
     table = dict(services())
     print("services")
     start("broker", table["broker"], env)
     wait_for(p["MQTT_PORT"], "broker")
-    for name in ("device-clap", "device-word", "device-hands", "flight", "screen"):
+    for name in ("device-clap", "device-word", "device-hands", "flight"):
         start(name, table[name], env)
-    if not args.skip_deploy:
+    wait_for(p["HANDS_DEVICE_PORT"], "device-hands", 120)
+    start("screen", table["screen"], screen_environment(env))
+    if not (args.skip_deploy or args.offline):
         print("expanso cloud: deploy the four jobs, then leave them stopped")
         for job in cloud.JOBS:
             print(f"  {job}: {cloud.deploy(job)}")
         for job in cloud.JOBS:
             cloud.stop(job)
+    elif args.offline:
+        print("offline mode: skipping Expanso Cloud deploy (local Edge state only)")
     print("expanso edge agents")
     for node in cloud.NODES:
         start(f"edge-{node}", table[f"edge-{node}"], env)
@@ -159,7 +225,16 @@ def up(args: argparse.Namespace) -> int:
         wait_for(p[port_name], name, 120)
     for node, port_name in EDGE_API.items():
         wait_for(p[port_name], f"edge {node}", 60)
-    print(f"ready: screen on http://127.0.0.1:{p['PORT']}/ (pipelines off)")
+    drone = env.get("RI_DRONE", DEFAULT_DRONE)
+    inp = env.get("RI_INPUT", DEFAULT_INPUT)
+    hands_inp = env.get("RI_HANDS_INPUT", inp)
+    hands_dev = env.get("RI_HANDS_DEVICE") or (DEFAULT_CAMERA if hands_inp == "live" else "fixture")
+    stage_cam = env.get("RI_STAGE_CAM", DEFAULT_CAMERA)
+    url_str = f"http://127.0.0.1:{p['PORT']}/"
+    print(
+        f"ready: screen on {url_str} (drone={drone}, input={inp}, "
+        f"hands={hands_inp}:{hands_dev}, stage_cam={stage_cam}, pipelines off)"
+    )
     return 0
 
 
@@ -180,7 +255,13 @@ def stop_process(name: str) -> None:
 
 
 def down(args: argparse.Namespace) -> int:
-    if not args.keep_jobs:
+    with contextlib.suppress(OSError):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{ports()['FLIGHT_PORT']}/kill", data=b"{}", method="POST"
+        )
+        req.add_header("Content-Type", "application/json")
+        urllib.request.urlopen(req, timeout=2).read()
+    if not (args.keep_jobs or args.offline):
         print("expanso cloud: stop and delete the four jobs")
         for job in cloud.JOBS:
             cloud.delete(job)
@@ -193,7 +274,10 @@ def down(args: argparse.Namespace) -> int:
     if busy or left:
         print(f"still bound: {busy or '-'}; pid files: {left or '-'}")
         return 1
-    print("down: no processes, no ports" + ("" if args.keep_jobs else ", no Cloud jobs"))
+    print(
+        "down: no processes, no ports"
+        + ("" if (args.keep_jobs or args.offline) else ", no Cloud jobs")
+    )
     return 0
 
 
@@ -217,9 +301,29 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     u = sub.add_parser("up")
+    u.add_argument(
+        "--drone",
+        choices=("sim", "codrone", "tello"),
+        default=os.environ.get("RI_DRONE", DEFAULT_DRONE),
+    )
+    u.add_argument(
+        "--input",
+        dest="input_mode",
+        choices=("fixture", "live"),
+        default=os.environ.get("RI_INPUT", DEFAULT_INPUT),
+    )
+    u.add_argument("--stage-cam", default=None)
+    u.add_argument("--hands-roi", default=os.environ.get("RI_HANDS_ROI", ""))
+    u.add_argument("--hands-input", choices=("", "fixture", "live"), default="")
+    u.add_argument("--hands-device", default=None)
+    u.add_argument("--clap-device", default=os.environ.get("RI_CLAP_DEVICE", DEFAULT_MIC))
+    u.add_argument("--word-device", default=os.environ.get("RI_WORD_DEVICE", DEFAULT_MIC))
+    u.add_argument("--mqtt-bind", default=os.environ.get("RI_MQTT_BIND", "127.0.0.1"))
     u.add_argument("--skip-deploy", action="store_true")
+    u.add_argument("--offline", action="store_true")
     d = sub.add_parser("down")
     d.add_argument("--keep-jobs", action="store_true")
+    d.add_argument("--offline", action="store_true")
     sub.add_parser("status")
     args = ap.parse_args()
     return {"up": up, "down": down, "status": status}[args.cmd](args)

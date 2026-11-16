@@ -4,45 +4,53 @@
 
 A small drone on a lecture-theatre stage that has no brain of its own. The
 audience is its nervous system: a clap wakes it, a shouted word moves it, a
-show of hands lands it. Three small boxes each own one sense (room mic,
-handheld mic, camera on the front block) and run one model. Each runs an
-Expanso Edge node that turns raw sound or pictures into one small decision.
-A fourth node beside the drone, fly-drone, applies one rule table and flies
-it. Expanso Cloud deploys the four pipelines and shows they are running.
+show of hands lands it. Two stage sensors feed three sense pipelines: a single
+handheld mic feeds hear-clap and hear-commands, and one camera feeds see-hands
+plus the live stage view. Each pipeline runs on an Expanso Edge node that turns
+raw sound or pictures into one small decision. A fourth node beside the drone,
+fly-drone, applies one rule table and flies it. Expanso Cloud deploys the four
+pipelines and shows they are running.
 
 The real source is the room: sound and faces. The destination is the drone.
 What travels between them is a handful of decisions.
 
 ## Palette rationale
 
-The screen renders standalone on a projector in a dark theatre, so it carries
-its own ground: stage black, warmed slightly (`#0a0908`), lit by one soft
-spotlight from above. Dark is chosen for the room, not by default.
+The screen uses a clean, un-heavy **light gallery ground** (`#f4f1ea` warm stone,
+not pure white) with `#fbf9f4` cards and fine `#d6cfc2` borders so larger moving
+particles, live waveforms, and the on-screen drone read effortlessly from row 10:
 
-- **Ember `#ff9a5a`** is the nerve impulse: a decision travelling. It is the
-  only bright thing that moves between nodes.
-- **Crimson `#ff5d6c`** is the reflex: land. It appears only when the safety
+- **Copper `#d95d16`** is the nerve impulse: large glowing decision orbs and live
+  waveform energy travelling across the board.
+- **Crimson `#c92a35`** is the reflex: land. It appears only when the safety
   rule fires.
-- **Blue `#74b8ff`** and **amber `#f2c14e`** are the drone's own LED colours
-  for up and down, so the screen and the airframe agree.
-- **Green `#8fe0a0`** means running: a live node, a parked drone.
-- Raw sound and frames are drawn in warm grey and never leave their node.
+- **Cobalt `#1d63b8`** and **amber `#b4690e`** mirror the drone's up and down
+  commands and LED states cleanly against warm paper.
+- **Emerald `#0d7a5f`** means running: a live node, a parked drone.
+- Raw grains (`#78695a`) and waveforms stay inside the sense-to-node boundary.
 
-Type: Newsreader (OFL, vendored) for the one line the audience is asked to
-act on, like a playbill. Monospace for every number and message, because the
-messages are the point.
+Type: Newsreader (OFL, vendored) for the one prompt line, monospace for concise
+telemetry and inspected messages, keeping text minimal.
 
 ## Scenario cast
 
-- **Sources:** room mic, handheld mic, camera, each always sensing.
-- **Expanso nodes:** hear-clap, hear-commands, see-hands. Raw windows flow
-  into each and stop there. Grey until its pipeline runs, then green.
-- **Decide:** fly-drone, an Expanso node with the rule table on its face
-  (land > stop > move > wake), the winning rule lit and a beaten rule struck.
-- **Act:** the drone, drawn from its own reported state: altitude, target,
-  LEDs, phase.
+- **Sources (waveforms + live meters):** one `handheld mic` (auto-preferring a
+  plugged-in DJI mic with built-in MacBook mic fallback; live waveform + `onset`
+  and `UP`/`DOWN`/`STOP` pills) feeding both `hear-clap` and `hear-commands`, plus
+  `camera` (live motion waveform + 50% threshold voting bar).
+- **Expanso nodes:** `hear-clap`, `hear-commands`, `see-hands`. Compact cards
+  stay light grey until active, then glow emerald with thick particle trails.
+- **Decide:** `fly-drone`, an Expanso node with the concise rule table on its
+  face (`land > stop > move > wake`), tagging the winning rule (`WINS`) and any
+  beaten rule (`LOST`, struck through).
+- **Act (Hero Drone + Stage Cam):** oversized drone flight arena (`0` to `2.0 m`,
+  animated rotors, visible LED glow) paired with a live `stage cam` viewport
+  fed cleanly from the single attached physical camera (`OBSBOT Tiny 2 Lite`).
 - **Orchestrator:** Expanso Cloud above the nodes, with dashed control lanes
   carrying deploy signals down and status up.
+- **Operator bar and reveal:** header clicker lock toggle, `land [Esc]` and
+  `cut [Shift+Esc]` emergency stops, clickable message inspector cards, and the
+  Reveal screen comparing per-packet bytes against raw MB kept on devices.
 
 ## Lane semantics
 

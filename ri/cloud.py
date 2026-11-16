@@ -111,3 +111,30 @@ def wait_running(count: int, timeout: float) -> bool:
             return True
         time.sleep(0.5)
     return False
+
+
+def main() -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Start or stop the four Expanso Cloud jobs.")
+    ap.add_argument("action", choices=("start", "stop"))
+    args = ap.parse_args()
+    if args.action == "start":
+        for job in JOBS:
+            rerun(job)
+        if not wait_running(len(JOBS), 180):
+            raise SystemExit(
+                "not all 4 pipelines reached running state; inspect .runtime/edge-*.log"
+            )
+        print("4/4 pipelines running")
+    else:
+        for job in JOBS:
+            stop(job)
+        if not wait_running(0, 60):
+            raise SystemExit("pipelines still running after stop")
+        print("0/4 pipelines running")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

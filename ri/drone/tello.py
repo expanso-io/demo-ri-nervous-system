@@ -8,32 +8,40 @@ Install on the presenter laptop only: `uv pip install djitellopy`.
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import threading
 import time
 from typing import Any
 
-from ri.drone import DroneState, LedColor, LedMode, Leds, Phase
+from ri.drone import AIRBORNE, DroneState, LedColor, LedMode, Leds, Phase, clamp_altitude
 from ri.drone.threaded import CommandWorker
 
 MIN_MOVE_CM = 20  # the Tello refuses smaller vertical moves
+log = logging.getLogger("ri.drone.tello")
 
 
 class TelloDrone:
     name = "tello"
 
-    def __init__(self) -> None:
-        try:
-            from djitellopy import Tello  # type: ignore[import-not-found]
-        except ImportError as error:
-            raise RuntimeError(
-                "Tello SDK missing: uv pip install djitellopy on the presenter laptop"
-            ) from error
-        self._tello: Any = Tello()
-        self._tello.connect()
+    def __init__(self, sdk: Any | None = None) -> None:
+        if sdk is None:
+            try:
+                from djitellopy import Tello  # type: ignore[import-not-found]
+            except ImportError as error:
+                raise RuntimeError(
+                    "Tello SDK missing: uv pip install djitellopy on the presenter laptop"
+                ) from error
+            self._tello: Any = Tello()
+            self._tello.connect()
+        else:
+            self._tello = sdk
         self._worker = CommandWorker(self.name)
         self._lock = threading.Lock()
         self._phase: Phase = "dark"
         self._target = 0.0
+        self._altitude = 0.0
+        self._battery: int | None = None
         self._leds = Leds()
 
     def _set_phase(self, phase: Phase) -> None:
@@ -41,7 +49,7 @@ class TelloDrone:
             self._phase = phase
 
     def take_off(self, altitude_m: float) -> None:
-        self._target = altitude_m
+        self._target = clamp_altitude(altitude_m)
         self._set_phase("taking_off")
 
         def run() -> None:
@@ -56,44 +64,84 @@ class TelloDrone:
 
         def run() -> None:
             self._tello.land()
+            self._leds = Leds("green", "breathing")
             self._set_phase("parked")
 
         self._worker.submit("land", run, preempt=True)
 
     def hover(self) -> None:
-        self._worker.submit("hover", lambda: self._tello.send_rc_control(0, 0, 0, 0))
+        def run() -> None:
+            self._tello.send_rc_control(0, 0, 0, 0)
+            with self._lock:
+                if self._phase in ("climbing", "descending", "taking_off"):
+                    self._phase = "hovering"
+
+        self._worker.submit("hover", run)
 
     def move_vertical(self, dz_m: float) -> None:
-        self._target += dz_m
-        self._set_phase("climbing" if dz_m > 0 else "descending")
-        cm = max(MIN_MOVE_CM, round(abs(dz_m) * 100))
+        with self._lock:
+            new_target = clamp_altitude(self._target + dz_m)
+            delta = new_target - self._target
+            if abs(delta) < 0.05:
+                return
+            self._target = new_target
+            self._phase = "climbing" if delta > 0 else "descending"
+        cm = max(MIN_MOVE_CM, round(abs(delta) * 100))
 
         def run() -> None:
-            if dz_m > 0:
+            if delta > 0:
                 self._tello.move_up(cm)
             else:
                 self._tello.move_down(cm)
-            self._set_phase("hovering")
+            with self._lock:
+                if self._phase in ("climbing", "descending"):
+                    self._phase = "hovering"
 
         self._worker.submit("move_vertical", run)
 
     def set_leds(self, color: LedColor, mode: LedMode) -> None:
         self._leds = Leds(color, mode)
 
+    def emergency(self) -> None:
+        self._target = 0.0
+        self._leds = Leds("red", "solid")
+        self._set_phase("parked")
+        self._worker.submit("emergency", lambda: self._tello.emergency(), preempt=True)
+        with contextlib.suppress(Exception):
+            self._tello.emergency()
+
+    def close(self) -> None:
+        with self._lock:
+            needs_land = self._phase in AIRBORNE
+        if needs_land:
+            with contextlib.suppress(Exception):
+                self._tello.land()
+            self._set_phase("parked")
+        self._worker.close()
+        with contextlib.suppress(Exception):
+            self._tello.end()
+
     def state(self) -> DroneState:
         try:
-            altitude = self._tello.get_height() / 100.0
+            altitude = float(self._tello.get_height()) / 100.0
             battery: int | None = int(self._tello.get_battery())
+            with self._lock:
+                self._altitude = max(0.0, altitude)
+                self._battery = battery
         except Exception:
-            altitude, battery = self._target, None
+            log.debug("tello telemetry poll failed", exc_info=True)
         with self._lock:
             phase = self._phase
+            altitude = self._altitude if self._phase != "dark" else 0.0
+            battery = self._battery
+            target = self._target
+            leds = self._leds
         return DroneState(
             adapter=self.name,
             phase=phase,
             altitude_m=altitude,
-            target_m=self._target,
-            leds=self._leds,
+            target_m=target,
+            leds=leds,
             battery=battery,
             t=time.time(),
         )

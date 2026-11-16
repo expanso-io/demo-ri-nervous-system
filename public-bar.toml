@@ -1,0 +1,12 @@
+[review_shots]
+labels = "h1, h2, h3, #pipeline-status, .cmd-name"
+counters = "[data-review-counter]"
+particles = "canvas#flow"
+pipeline = "#pipeline-status"
+nodes = ".node"
+state = "#pipeline-status, #phase"
+hover = ".slot"
+alert = "window.dispatchEvent(new CustomEvent('review-alert'))"
+
+[[review_shots.states]]
+name = "zero"

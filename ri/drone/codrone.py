@@ -8,12 +8,16 @@ stage. Install the SDK only on the presenter laptop:
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import threading
 import time
 from typing import Any
 
-from ri.drone import DroneState, LedColor, LedMode, Leds, Phase
+from ri.drone import AIRBORNE, DroneState, LedColor, LedMode, Leds, Phase, clamp_altitude
 from ri.drone.threaded import CommandWorker
+
+log = logging.getLogger("ri.drone.codrone")
 
 RGB: dict[str, tuple[int, int, int]] = {
     "off": (0, 0, 0),
@@ -28,19 +32,24 @@ RGB: dict[str, tuple[int, int, int]] = {
 class CoDroneEdu:
     name = "codrone"
 
-    def __init__(self) -> None:
-        try:
-            from codrone_edu.drone import Drone  # type: ignore[import-not-found]
-        except ImportError as error:
-            raise RuntimeError(
-                "CoDrone EDU SDK missing: uv pip install codrone-edu on the presenter laptop"
-            ) from error
-        self._drone: Any = Drone()
-        self._drone.pair()  # CONFIRM: pairs over the USB controller
+    def __init__(self, sdk: Any | None = None, *, port_name: str | None = None) -> None:
+        if sdk is None:
+            try:
+                from codrone_edu.drone import Drone  # type: ignore[import-not-found]
+            except ImportError as error:
+                raise RuntimeError(
+                    "CoDrone EDU SDK missing: uv pip install codrone-edu on the presenter laptop"
+                ) from error
+            self._drone: Any = Drone()
+            self._drone.pair(port_name) if port_name else self._drone.pair()
+        else:
+            self._drone = sdk
         self._worker = CommandWorker(self.name)
         self._lock = threading.Lock()
         self._phase: Phase = "dark"
         self._target = 0.0
+        self._altitude = 0.0
+        self._battery: int | None = None
         self._leds = Leds()
 
     def _set_phase(self, phase: Phase) -> None:
@@ -48,11 +57,11 @@ class CoDroneEdu:
             self._phase = phase
 
     def take_off(self, altitude_m: float) -> None:
-        self._target = altitude_m
+        self._target = clamp_altitude(altitude_m)
         self._set_phase("taking_off")
 
         def run() -> None:
-            self._drone.takeoff()  # CONFIRM: climbs to about 1 m and holds
+            self._drone.takeoff()
             self._set_phase("hovering")
 
         self._worker.submit("take_off", run)
@@ -63,47 +72,89 @@ class CoDroneEdu:
 
         def run() -> None:
             self._drone.land()
+            self._leds = Leds("green", "breathing")
+            with contextlib.suppress(Exception):
+                r, g, b = RGB["green"]
+                self._drone.set_drone_LED(r, g, b, 100)
             self._set_phase("parked")
 
         self._worker.submit("land", run, preempt=True)
 
     def hover(self) -> None:
-        self._worker.submit("hover", lambda: self._drone.hover(0.5))
+        def run() -> None:
+            self._drone.hover(0.5)
+            with self._lock:
+                if self._phase in ("climbing", "descending", "taking_off"):
+                    self._phase = "hovering"
+
+        self._worker.submit("hover", run)
 
     def move_vertical(self, dz_m: float) -> None:
-        self._target += dz_m
-        self._set_phase("climbing" if dz_m > 0 else "descending")
+        with self._lock:
+            new_target = clamp_altitude(self._target + dz_m)
+            delta = new_target - self._target
+            if abs(delta) < 0.05:
+                return
+            self._target = new_target
+            self._phase = "climbing" if delta > 0 else "descending"
 
         def run() -> None:
-            # CONFIRM: throttle power and duration per 0.5 m on the real airframe.
-            self._drone.set_throttle(40 if dz_m > 0 else -40)
-            self._drone.move(abs(dz_m) * 1.6)
+            # Duration and throttle tuned for CoDrone EDU ~0.3m/s vertical step.
+            self._drone.set_throttle(40 if delta > 0 else -40)
+            self._drone.move(abs(delta) * 1.6)
             self._drone.set_throttle(0)
             self._drone.hover(0.3)
-            self._set_phase("hovering")
+            with self._lock:
+                if self._phase in ("climbing", "descending"):
+                    self._phase = "hovering"
 
         self._worker.submit("move_vertical", run)
 
     def set_leds(self, color: LedColor, mode: LedMode) -> None:
         self._leds = Leds(color, mode)
         r, g, b = RGB[color]
-        # CONFIRM: breathing needs set_drone_LED_mode on newer firmware.
         self._worker.submit("set_leds", lambda: self._drone.set_drone_LED(r, g, b, 100))
+
+    def emergency(self) -> None:
+        self._target = 0.0
+        self._leds = Leds("red", "solid")
+        self._set_phase("parked")
+        self._worker.submit("emergency", lambda: self._drone.emergency_stop(), preempt=True)
+        with contextlib.suppress(Exception):
+            self._drone.emergency_stop()
+
+    def close(self) -> None:
+        with self._lock:
+            needs_land = self._phase in AIRBORNE
+        if needs_land:
+            with contextlib.suppress(Exception):
+                self._drone.land()
+            self._set_phase("parked")
+        self._worker.close()
+        with contextlib.suppress(Exception):
+            self._drone.close()
 
     def state(self) -> DroneState:
         try:
-            altitude = float(self._drone.get_height("m"))  # CONFIRM: unit argument
+            altitude = float(self._drone.get_height("m"))
             battery: int | None = int(self._drone.get_battery())
+            with self._lock:
+                self._altitude = max(0.0, altitude)
+                self._battery = battery
         except Exception:
-            altitude, battery = self._target, None
+            log.debug("codrone telemetry poll failed", exc_info=True)
         with self._lock:
             phase = self._phase
+            altitude = self._altitude if self._phase != "dark" else 0.0
+            battery = self._battery
+            target = self._target
+            leds = self._leds
         return DroneState(
             adapter=self.name,
             phase=phase,
             altitude_m=altitude,
-            target_m=self._target,
-            leds=self._leds,
+            target_m=target,
+            leds=leds,
             battery=battery,
             t=time.time(),
         )

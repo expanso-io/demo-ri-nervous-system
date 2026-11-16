@@ -20,8 +20,11 @@ pipeline's MQTT output.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
+import os
+import signal
 import threading
 import time
 import urllib.error
@@ -35,8 +38,10 @@ import numpy as np
 import soundfile as sf
 
 from ri.bus import DEVICE_TOPIC, Bus
+from ri.capture import LiveCamera, LiveMic
 from ri.messages import Decision
-from ri.ports import port
+from ri.ports import DEFAULT_CAMERA, DEFAULT_INPUT, DEFAULT_MIC, port
+from ri.senses.hands import HandBox, annotate_hands
 from ri.types import Array
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,7 +69,7 @@ DEVICES: dict[str, dict[str, Any]] = {
         "name": "see-hands",
         "ingest": "HANDS_INGEST_PORT",
         "control": "HANDS_DEVICE_PORT",
-        "fps": 5.0,
+        "fps": 10.0,
     },
 }
 
@@ -91,10 +96,11 @@ def pink(n: int, rng: np.random.Generator) -> Array:
 
 
 class Device:
-    def __init__(self, sense: str) -> None:
+    def __init__(self, sense: str, *, input_mode: str = "fixture") -> None:
         self.sense = sense
         self.spec = DEVICES[sense]
         self.name: str = self.spec["name"]
+        self.input_mode = input_mode
         self.lock = threading.Lock()
         self.link_cut = False
         self.sent = 0
@@ -108,6 +114,10 @@ class Device:
         self.ingest = f"http://127.0.0.1:{port(self.spec['ingest'])}/frames"
         self.last_emit: dict[str, float] = {}
         self.clip_rotation: dict[str, int] = {}
+
+    def close(self) -> None:
+        with contextlib.suppress(Exception):
+            self.bus.stop()
 
     # --- capture --------------------------------------------------------
     def capture(self) -> None:
@@ -146,6 +156,7 @@ class Device:
         return {
             "device": self.name,
             "sense": self.sense,
+            "input": self.input_mode,
             "level": round(self.level, 3),
             "sent": self.sent,
             "dropped": self.dropped,
@@ -164,14 +175,62 @@ class Device:
 
 
 class AudioDevice(Device):
-    def __init__(self, sense: str) -> None:
-        super().__init__(sense)
+    def __init__(
+        self, sense: str, *, input_mode: str = "fixture", device_spec: str | None = None
+    ) -> None:
+        super().__init__(sense, input_mode=input_mode)
         self.rng = np.random.default_rng(7 if sense == "clap" else 8)
         self.bed = pink(SR * 30, self.rng) * float(self.spec["bed"])
         self.bed_pos = 0
         self.ring: deque[Array] = deque(maxlen=int(1.0 / TICK_S))
+        self.wave: deque[int] = deque([0] * 32, maxlen=32)
         self.playing: list[tuple[Array, int]] = []
         self.model: Any = None
+        self.mic: LiveMic | None = (
+            LiveMic(device_spec or DEFAULT_MIC, SR) if input_mode == "live" else None
+        )
+
+    def telemetry(self) -> dict[str, Any]:
+        with self.lock:
+            mic = self.mic
+            body = super().telemetry()
+            body["wave"] = list(self.wave)
+        if mic is not None and mic.device_name:
+            body["mic"] = mic.device_name
+        return body
+
+    def set_source(
+        self,
+        device_spec: str | None = None,
+        *,
+        input_mode: str | None = None,
+    ) -> dict[str, Any]:
+        spec = (device_spec or "").strip()
+        mode = (input_mode or ("fixture" if spec.lower() == "fixture" else "live")).strip().lower()
+        if mode not in ("fixture", "live"):
+            raise ValueError(f"unknown input_mode {mode!r}")
+        new_mic: LiveMic | None = None
+        if mode == "live":
+            target = spec or "dji"
+            new_mic = LiveMic(target, SR, strict=target.lower() not in ("auto", "default"))
+        with self.lock:
+            old_mic = self.mic
+            self.mic = new_mic
+            self.input_mode = mode
+        if old_mic is not None:
+            old_mic.close()
+        return {
+            "input": mode,
+            "mic": new_mic.device_name if new_mic is not None else None,
+        }
+
+    def close(self) -> None:
+        with self.lock:
+            mic = self.mic
+            self.mic = None
+        if mic is not None:
+            mic.close()
+        super().close()
 
     def cue(self, body: dict[str, Any]) -> dict[str, Any]:
         clip_name = str(body.get("clip", ""))
@@ -187,10 +246,15 @@ class AudioDevice(Device):
 
     def chunk(self) -> Array:
         n = int(SR * TICK_S)
-        if self.bed_pos + n > len(self.bed):
-            self.bed_pos = 0
-        out = self.bed[self.bed_pos : self.bed_pos + n].copy()
-        self.bed_pos += n
+        with self.lock:
+            mic = self.mic
+        if mic is not None:
+            out = mic.read_chunk(n).copy()
+        else:
+            if self.bed_pos + n > len(self.bed):
+                self.bed_pos = 0
+            out = self.bed[self.bed_pos : self.bed_pos + n].copy()
+            self.bed_pos += n
         with self.lock:
             still: list[tuple[Array, int]] = []
             for clip, pos in self.playing:
@@ -211,6 +275,8 @@ class AudioDevice(Device):
             rms = float(np.sqrt(np.mean(chunk**2)))
             self.level = max(0.0, min(1.0, (20 * np.log10(rms + 1e-9) + 60) / 60))
             tick += 1
+            if tick % 2 == 0:
+                self.wave.append(max(0, min(99, round(self.level * 99))))
             if tick % hop_ticks == 0 and len(self.ring) == self.ring.maxlen:
                 window = np.concatenate(list(self.ring))
                 pcm = np.clip(window * 32767, -32768, 32767).astype("<i2").tobytes()
@@ -228,8 +294,8 @@ class ClapDevice(AudioDevice):
     MIN_CONFIDENCE = 0.5
     REFRACTORY_S = 3.5  # one round of applause is one clap
 
-    def __init__(self) -> None:
-        super().__init__("clap")
+    def __init__(self, *, input_mode: str = "fixture", device_spec: str | None = None) -> None:
+        super().__init__("clap", input_mode=input_mode, device_spec=device_spec)
         from ri.senses.clap import ClapDetector
 
         self.model = ClapDetector()
@@ -242,7 +308,7 @@ class ClapDevice(AudioDevice):
             self.windows += 1
             windows = self.windows
         fresh = now - self.last_emit.get("clap", 0.0) > self.REFRACTORY_S
-        if score.onset and score.confidence >= self.MIN_CONFIDENCE and fresh:
+        if score.triggered(self.MIN_CONFIDENCE) and fresh:
             self.last_emit["clap"] = now
             decision = Decision("clap", now, confidence=score.confidence, seq=self.next_seq())
             return decision.to_json()
@@ -251,14 +317,31 @@ class ClapDevice(AudioDevice):
 
 class WordDevice(AudioDevice):
     MIN_CONFIDENCE = 0.75
-    MIN_RMS = 0.01
+    MIN_MARGIN = 0.25
+    MIN_RMS = 0.004
     REFRACTORY_S = 1.2
 
-    def __init__(self) -> None:
-        super().__init__("word")
+    def __init__(self, *, input_mode: str = "fixture", device_spec: str | None = None) -> None:
+        super().__init__("word", input_mode=input_mode, device_spec=device_spec)
         from ri.senses.kws import KeywordSpotter
 
         self.model = KeywordSpotter()
+
+    def cue(self, body: dict[str, Any]) -> dict[str, Any]:
+        click = body.get("click")
+        if click is not None:
+            word = str(click)
+            if word not in ("up", "down", "stop"):
+                raise ValueError(f"unknown clicker command {word!r}")
+            clip = load_clip(CLIPS[word][0])
+            window = np.zeros(SR, dtype=np.float32)
+            window[-min(SR, len(clip)) :] = clip[:SR]
+            pcm = np.clip(window * 32767, -32768, 32767).astype("<i2").tobytes()
+            threading.Thread(
+                target=self.post, args=(pcm, "application/octet-stream"), daemon=True
+            ).start()
+            return {"clicked": word}
+        return super().cue(body)
 
     def infer(self, payload: bytes) -> dict[str, Any]:
         window = self.window_from(payload)
@@ -266,39 +349,66 @@ class WordDevice(AudioDevice):
         with self.lock:
             self.windows += 1
             windows = self.windows
-        rms = float(np.sqrt(np.mean(window**2)))
-        if rms < self.MIN_RMS:
-            return {"sense": None, "window": windows, "heard": "_silence_"}
-        label, confidence = self.model.best(window)
+        match = self.model.classify(
+            window,
+            min_rms=self.MIN_RMS,
+            min_conf=self.MIN_CONFIDENCE,
+            min_margin=self.MIN_MARGIN,
+        )
         fresh = now - self.last_emit.get("word", 0.0) > self.REFRACTORY_S
-        if label in ("up", "down", "stop") and confidence >= self.MIN_CONFIDENCE and fresh:
+        if match.word is not None and fresh:
             self.last_emit["word"] = now
             decision = Decision(
-                "word", now, confidence=confidence, value=label, seq=self.next_seq()
+                "word",
+                now,
+                confidence=match.confidence,
+                value=match.word,
+                seq=self.next_seq(),
             )
             return decision.to_json()
-        return {"sense": None, "window": windows, "heard": label}
+        return {"sense": None, "window": windows, "heard": match.heard}
 
 
 class HandsDevice(Device):
-    EMIT_EVERY = 3  # frames; with 5 fps a hands decision every 0.6 s
+    EMIT_EVERY = 5  # frames; with 10 fps a hands decision every 0.5 s
 
-    def __init__(self) -> None:
-        super().__init__("hands")
+    def __init__(
+        self,
+        *,
+        input_mode: str = "fixture",
+        device_spec: str | None = None,
+        roi: str | None = None,
+    ) -> None:
+        super().__init__("hands", input_mode=input_mode)
+        os.environ.setdefault("YOLO_CONFIG_DIR", str(ROOT / ".runtime" / "ultralytics"))
         import cv2
 
         from ri.camera import VotingBlock
         from ri.senses.hands import HandCounter
 
         self.cv2: Any = cv2
-        self.block = VotingBlock()
-        self.block.set_scene("idle")
-        self.counter = HandCounter()
+        self.camera: LiveCamera | None = (
+            LiveCamera(device_spec or DEFAULT_CAMERA) if input_mode == "live" else None
+        )
+        self.block: VotingBlock | None = None if input_mode == "live" else VotingBlock()
+        if self.block is not None:
+            self.block.set_scene("idle")
+        self.counter = HandCounter(roi=roi)
         self.previous: Array | None = None
+        self.wave: deque[int] = deque([0] * 32, maxlen=32)
         self.fps = 0.0
+        self._last_boxes: list[HandBox] = []
+        self._boxes_at = 0.0
+
+    def close(self) -> None:
+        if self.camera is not None:
+            self.camera.close()
+        super().close()
 
     def cue(self, body: dict[str, Any]) -> dict[str, Any]:
         scene = str(body.get("scene", ""))
+        if self.block is None:
+            return {"scene": scene, "input": "live"}
         self.block.set_scene(scene)
         return {"scene": scene}
 
@@ -307,19 +417,34 @@ class HandsDevice(Device):
         next_t = time.monotonic()
         last = time.monotonic()
         while True:
-            frame = self.block.frame(time.monotonic())
+            frame = (
+                self.camera.read()
+                if self.camera is not None
+                else (self.block.frame(time.monotonic()) if self.block is not None else None)
+            )
+            if frame is None:
+                time.sleep(0.05)
+                next_t = time.monotonic() + period
+                continue
             small = self.cv2.resize(frame, (96, 60)).astype(np.float32)
             if self.previous is not None:
                 motion = float(np.abs(small - self.previous).mean())
                 # idle crowd shuffle reads about 12, hands going up about 20
                 self.level = max(0.0, min(1.0, (motion - 6.0) / 24.0))
+            self.wave.append(max(0, min(99, round(self.level * 99))))
             self.previous = small
+            now = time.monotonic()
+            if self.camera is not None and (now - self._boxes_at) >= 0.18:
+                with self.lock:
+                    if (time.monotonic() - self._boxes_at) >= 0.18:
+                        _, boxes = self.counter.detect_frame(frame)
+                        self._last_boxes = boxes
+                        self._boxes_at = time.monotonic()
             ok, jpeg = self.cv2.imencode(".jpg", frame, [self.cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
                 threading.Thread(
                     target=self.post, args=(jpeg.tobytes(), "image/jpeg"), daemon=True
                 ).start()
-            now = time.monotonic()
             self.fps = 0.8 * self.fps + 0.2 * (1.0 / max(1e-3, now - last))
             last = now
             next_t += period
@@ -328,8 +453,10 @@ class HandsDevice(Device):
     def infer(self, payload: bytes) -> dict[str, Any]:
         image = self.cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), self.cv2.IMREAD_COLOR)
         with self.lock:
-            count = self.counter.count_frame(image)
+            count, boxes = self.counter.detect_frame(image)
             smoothed = self.counter.add(count)
+            self._last_boxes = boxes
+            self._boxes_at = time.monotonic()
             self.windows += 1
             windows = self.windows
         if windows % self.EMIT_EVERY:
@@ -345,9 +472,26 @@ class HandsDevice(Device):
         )
         return decision.to_json()
 
+    def preview_jpeg(self) -> bytes | None:
+        if self.camera is None:
+            return None
+        frame = self.camera.read()
+        if frame is None:
+            return self.camera.jpeg()
+        with self.lock:
+            boxes = list(self._last_boxes) if (time.monotonic() - self._boxes_at) < 1.5 else []
+        if not boxes and self.counter.roi is None:
+            return self.camera.jpeg()
+        drawn = annotate_hands(frame, boxes, roi=self.counter.roi)
+        ok, buf = self.cv2.imencode(".jpg", drawn, [self.cv2.IMWRITE_JPEG_QUALITY, 82])
+        return buf.tobytes() if ok else self.camera.jpeg()
+
     def telemetry(self) -> dict[str, Any]:
         body = super().telemetry()
         body["fps"] = round(self.fps, 1)
+        body["wave"] = list(self.wave)
+        if self.camera is not None and self.camera.device_name:
+            body["camera"] = self.camera.device_name
         return body
 
 
@@ -367,6 +511,17 @@ def make_handler(device: Device) -> type[BaseHTTPRequestHandler]:
         def do_GET(self) -> None:
             if self.path == "/status":
                 self._reply(200, device.telemetry())
+            elif self.path == "/preview.jpg":
+                jpg = device.preview_jpeg() if isinstance(device, HandsDevice) else None
+                if jpg is None:
+                    self._reply(404, {"error": "live camera preview unavailable"})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(jpg)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(jpg)
             else:
                 self._reply(404, {"error": "not found"})
 
@@ -380,9 +535,20 @@ def make_handler(device: Device) -> type[BaseHTTPRequestHandler]:
                     body = json.loads(self._body() or b"{}")
                     device.link_cut = bool(body.get("cut", not device.link_cut))
                     self._reply(200, {"link": "cut" if device.link_cut else "ok"})
+                elif self.path == "/mic":
+                    if not isinstance(device, AudioDevice):
+                        raise ValueError("audio device only")
+                    body = json.loads(self._body() or b"{}")
+                    self._reply(
+                        200,
+                        device.set_source(
+                            body.get("device"),
+                            input_mode=body.get("input_mode"),
+                        ),
+                    )
                 else:
                     self._reply(404, {"error": "not found"})
-            except (ValueError, KeyError) as error:
+            except (ValueError, KeyError, RuntimeError) as error:
                 self._reply(400, {"error": str(error)})
 
         def log_message(self, *args: object) -> None:
@@ -394,21 +560,48 @@ def make_handler(device: Device) -> type[BaseHTTPRequestHandler]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("sense", choices=sorted(DEVICES))
+    ap.add_argument("--input", dest="input_mode", choices=("fixture", "live"))
+    ap.add_argument("--device", dest="device_spec")
+    ap.add_argument("--roi", dest="roi")
+    ap.add_argument("--host", default=os.environ.get("RI_DEVICE_BIND", "127.0.0.1"))
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    sense_key = args.sense.upper()
+    mode = (
+        args.input_mode
+        or os.environ.get(f"RI_{sense_key}_INPUT")
+        or os.environ.get("RI_INPUT", DEFAULT_INPUT)
+    )
+    dev_spec = args.device_spec or os.environ.get(f"RI_{sense_key}_DEVICE")
     device: Device
     if args.sense == "clap":
-        device = ClapDevice()
+        device = ClapDevice(input_mode=mode, device_spec=dev_spec)
     elif args.sense == "word":
-        device = WordDevice()
+        device = WordDevice(input_mode=mode, device_spec=dev_spec)
     else:
-        device = HandsDevice()
+        device = HandsDevice(input_mode=mode, device_spec=dev_spec, roi=args.roi)
     for target in (device.capture, device.telemetry_loop):
         threading.Thread(target=target, daemon=True).start()
     control = port(device.spec["control"])
-    server = ThreadingHTTPServer(("127.0.0.1", control), make_handler(device))
-    log.info("%s device on 127.0.0.1:%d, pipeline input %s", device.name, control, device.ingest)
-    server.serve_forever()
+    server = ThreadingHTTPServer((args.host, control), make_handler(device))
+
+    def handle_stop(_signum: int, _frame: Any) -> None:
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, handle_stop)
+    log.info(
+        "%s device (%s) on %s:%d, pipeline input %s",
+        device.name,
+        mode,
+        args.host,
+        control,
+        device.ingest,
+    )
+    try:
+        server.serve_forever()
+    finally:
+        device.close()
     return 0
 
 

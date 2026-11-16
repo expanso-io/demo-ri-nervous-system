@@ -13,9 +13,11 @@ POST /kill is the presenter's Escape key: land now, whatever the senses say.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
+import signal
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,8 +27,9 @@ from ri.bus import ACT_TOPIC, DRONE_TOPIC, Bus
 from ri.decide import Action, Decider
 from ri.drone import STEP_M, WAKE_ALTITUDE_M, DroneAdapter, LedColor, LedMode, make_adapter
 from ri.messages import MessageError, parse_decision
-from ri.ports import port
+from ri.ports import DEFAULT_DRONE, port
 
+LOW_BATTERY_PCT = 20
 log = logging.getLogger("ri.flight")
 
 LEDS: dict[str, tuple[LedColor, LedMode]] = {
@@ -77,12 +80,19 @@ class Flight:
         body["sense"] = decision.sense
         return body
 
-    def kill(self) -> dict[str, Any]:
+    def kill(self, *, cut: bool = False) -> dict[str, Any]:
         with self.lock:
-            action = Action("land", "presenter stop", "land", t=time.time())
-            if self.drone.state().airborne:
+            state = self.drone.state()
+            self.decider.suppress_pending()
+            if cut:
+                action = Action("land", "emergency motor cut", "land", t=time.time())
                 self.drone.set_leds(*LEDS["land"])
-                self.drone.land()
+                self.drone.emergency()
+            else:
+                action = Action("land", "presenter stop", "land", t=time.time())
+                if state.phase not in ("dark", "parked", "landing"):
+                    self.drone.set_leds(*LEDS["land"])
+                    self.drone.land()
             self.last_action = action
         body = action.to_json()
         body["from"] = "presenter"
@@ -92,16 +102,31 @@ class Flight:
     def reset(self) -> dict[str, Any]:
         """Back to a dark drone on the floor, for the next take."""
         with self.lock:
+            state = self.drone.state()
             if self.drone_name != "sim":
-                raise ValueError("reset only applies to the on-screen drone")
+                if state.airborne or state.phase == "landing":
+                    raise ValueError("cannot reset while real drone is airborne")
+                self.decider.reset()
+                self.last_action = None
+                self.decisions = 0
+                return {"reset": True}
+            self.drone.close()
             self.drone = make_adapter("sim")
             self.decider = Decider()
             self.last_action = None
             self.decisions = 0
         return {"reset": True}
 
+    def shutdown(self) -> None:
+        with self.lock:
+            with contextlib.suppress(Exception):
+                self.drone.close()
+            with contextlib.suppress(Exception):
+                self.bus.stop()
+
     def state_loop(self) -> None:
         previous = ""
+        warned_low = False
         while True:
             with self.lock:
                 state = self.drone.state()
@@ -111,6 +136,9 @@ class Flight:
                     self.drone.set_leds("white", "solid")
                     state = self.drone.state()
                 previous = state.phase
+            if state.battery is not None and state.battery < LOW_BATTERY_PCT and not warned_low:
+                warned_low = True
+                log.warning("low drone battery: %d%%", state.battery)
             body = state.to_json()
             body["decisions"] = self.decisions
             self.bus.publish(DRONE_TOPIC, body)
@@ -139,12 +167,13 @@ def make_handler(flight: Flight) -> type[BaseHTTPRequestHandler]:
                 if self.path == "/decide":
                     self._reply(200, flight.decide(body))
                 elif self.path == "/kill":
-                    self._reply(200, flight.kill())
+                    parsed = json.loads(body) if body.strip() else {}
+                    self._reply(200, flight.kill(cut=bool(parsed.get("cut", False))))
                 elif self.path == "/reset":
                     self._reply(200, flight.reset())
                 else:
                     self._reply(404, {"error": "not found"})
-            except (MessageError, ValueError) as error:
+            except (MessageError, ValueError, json.JSONDecodeError) as error:
                 self._reply(400, {"error": str(error)})
 
         def log_message(self, *args: object) -> None:
@@ -155,15 +184,25 @@ def make_handler(flight: Flight) -> type[BaseHTTPRequestHandler]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--drone", default=os.environ.get("RI_DRONE", "sim"))
+    ap.add_argument("--drone", default=os.environ.get("RI_DRONE", DEFAULT_DRONE))
+    ap.add_argument("--host", default=os.environ.get("RI_FLIGHT_BIND", "127.0.0.1"))
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     flight = Flight(args.drone)
     threading.Thread(target=flight.state_loop, daemon=True).start()
     listen = port("FLIGHT_PORT")
-    server = ThreadingHTTPServer(("127.0.0.1", listen), make_handler(flight))
-    log.info("flight service on 127.0.0.1:%d, drone %s", listen, args.drone)
-    server.serve_forever()
+    server = ThreadingHTTPServer((args.host, listen), make_handler(flight))
+
+    def handle_stop(_signum: int, _frame: Any) -> None:
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, handle_stop)
+    log.info("flight service on %s:%d, drone %s", args.host, listen, args.drone)
+    try:
+        server.serve_forever()
+    finally:
+        flight.shutdown()
     return 0
 
 

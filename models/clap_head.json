@@ -1,0 +1,10 @@
+{
+  "train_samples": 5748,
+  "val_samples": 1920,
+  "val_tp": 85,
+  "val_fn": 5,
+  "val_fp": 7,
+  "val_tn": 1823,
+  "val_recall": 0.9444,
+  "val_specificity": 0.9962
+}

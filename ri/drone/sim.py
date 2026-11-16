@@ -7,11 +7,12 @@ build tool and never named on an audience-facing surface.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections.abc import Callable
 
-from ri.drone import DroneState, LedColor, LedMode, Leds, Phase
+from ri.drone import DroneState, LedColor, LedMode, Leds, Phase, clamp_altitude
 
 CLIMB_M_PER_S = 0.6
 LAND_M_PER_S = 0.5
@@ -21,14 +22,17 @@ SETTLE_M = 0.01
 class SimDrone:
     name = "sim"
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self, clock: Callable[[], float] = time.monotonic, battery: float | None = None
+    ) -> None:
         self._clock = clock
         self._lock = threading.Lock()
         self._phase: Phase = "dark"
         self._altitude = 0.0
         self._target = 0.0
         self._leds = Leds()
-        self._battery = 100.0
+        default_battery = float(os.environ.get("RI_SIM_BATTERY", "100"))
+        self._battery = default_battery if battery is None else float(battery)
         self._last = clock()
 
     def _advance(self) -> None:
@@ -53,7 +57,7 @@ class SimDrone:
     def take_off(self, altitude_m: float) -> None:
         with self._lock:
             self._advance()
-            self._target = altitude_m
+            self._target = clamp_altitude(altitude_m)
             self._phase = "taking_off"
 
     def land(self) -> None:
@@ -72,12 +76,23 @@ class SimDrone:
     def move_vertical(self, dz_m: float) -> None:
         with self._lock:
             self._advance()
-            self._target = max(0.2, self._target + dz_m)
+            self._target = clamp_altitude(self._target + dz_m)
             self._phase = "climbing" if dz_m > 0 else "descending"
 
     def set_leds(self, color: LedColor, mode: LedMode) -> None:
         with self._lock:
             self._leds = Leds(color, mode)
+
+    def emergency(self) -> None:
+        with self._lock:
+            self._last = self._clock()
+            self._target = 0.0
+            self._altitude = 0.0
+            self._phase = "parked"
+            self._leds = Leds("red", "solid")
+
+    def close(self) -> None:
+        pass
 
     def state(self) -> DroneState:
         with self._lock:

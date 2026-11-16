@@ -11,8 +11,12 @@ Expanso Edge agent's local API. Bound to 127.0.0.1 only; the presenter keys
 
 from __future__ import annotations
 
+import argparse
+import contextlib
 import json
 import logging
+import os
+import signal
 import threading
 import time
 import urllib.error
@@ -22,9 +26,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from ri import cloud
 from ri.bus import Bus
+from ri.capture import LiveCamera, list_physical_audio_inputs
 from ri.messages import PIPELINE_FOR
-from ri.ports import port, url
+from ri.ports import DEFAULT_CAMERA, port, url
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "dashboard"
@@ -51,8 +57,12 @@ TYPES = {
 
 
 class Board:
-    def __init__(self) -> None:
+    def __init__(
+        self, stage_cam: LiveCamera | None = None, *, stage_cam_name: str | None = None
+    ) -> None:
         self.lock = threading.Lock()
+        self.stage_cam = stage_cam
+        self.stage_cam_label = stage_cam_name
         self.devices: dict[str, dict[str, Any]] = {}
         self.nodes: dict[str, dict[str, Any]] = {
             n: {"live": False, "agent": False, "sent": 0} for n in NODE_API
@@ -97,6 +107,7 @@ class Board:
             elif topic.startswith("ri/sense/"):
                 sense = topic.rsplit("/", 1)[1]
                 body["raw"] = payload.decode()
+                body["bytes"] = len(payload)
                 body["seen_at"] = time.time()
                 self.latest[sense] = body
                 self.decision_bytes += len(payload)
@@ -106,6 +117,7 @@ class Board:
                 self.pulse("sense", node)
             elif topic == "ri/act":
                 body["raw"] = payload.decode()
+                body["bytes"] = len(payload)
                 body["seen_at"] = time.time()
                 self.act = body
                 self.nodes["fly-drone"]["sent"] += 1
@@ -143,6 +155,12 @@ class Board:
                 "drone": self.drone,
                 "scene": self.scene,
                 "pulses": list(self.pulses),
+                "stage_cam": self.stage_cam is not None,
+                "stage_cam_name": (
+                    (self.stage_cam_label or self.stage_cam.device_name)
+                    if self.stage_cam is not None
+                    else None
+                ),
                 "kept": {
                     "raw_bytes": sum(d.get("captured_bytes", 0) for d in self.devices.values()),
                     "decision_bytes": self.decision_bytes,
@@ -166,9 +184,17 @@ def running(body: Any) -> bool:
 def post(target: str, body: dict[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(target, data=json.dumps(body).encode(), method="POST")
     request.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(request, timeout=3) as response:
-        result: dict[str, Any] = json.loads(response.read())
-        return result
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            result: dict[str, Any] = json.loads(response.read())
+            return result
+    except urllib.error.HTTPError as error:
+        raw = error.read().decode(errors="replace")
+        try:
+            detail = str(json.loads(raw).get("error") or raw)
+        except ValueError:
+            detail = raw or str(error)
+        raise ValueError(detail) from error
 
 
 def make_handler(board: Board) -> type[BaseHTTPRequestHandler]:
@@ -189,6 +215,43 @@ def make_handler(board: Board) -> type[BaseHTTPRequestHandler]:
             if path == "/api/state":
                 self._json(200, board.snapshot())
                 return
+            if path == "/api/mics":
+                self._json(200, {"mics": list_physical_audio_inputs()})
+                return
+            if path == "/api/stage-cam.jpg":
+                frame = board.stage_cam.jpeg() if board.stage_cam is not None else None
+                if frame is None:
+                    self._json(404, {"error": "stage camera not active"})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(frame)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(frame)
+                return
+            if path == "/api/stage-cam.mjpg":
+                if board.stage_cam is None:
+                    self._json(404, {"error": "stage camera not active"})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                try:
+                    while True:
+                        frame = board.stage_cam.jpeg()
+                        if frame:
+                            head = (
+                                b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                + str(len(frame)).encode()
+                                + b"\r\n\r\n"
+                            )
+                            self.wfile.write(head + frame + b"\r\n")
+                            self.wfile.flush()
+                        time.sleep(0.08)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
             if path == "/api/stream":
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -229,12 +292,68 @@ def make_handler(board: Board) -> type[BaseHTTPRequestHandler]:
                     board.reset()
                     self._json(200, {"reset": True})
                 elif self.path == "/api/kill":
-                    self._json(200, post(url("FLIGHT_PORT", "/kill"), {}))
+                    self._json(
+                        200,
+                        post(url("FLIGHT_PORT", "/kill"), {"cut": bool(body.get("cut", False))}),
+                    )
+                elif self.path == "/api/cue":
+                    target_sense = str(body.get("sense", "word"))
+                    port_map = {
+                        "clap": "CLAP_DEVICE_PORT",
+                        "word": "WORD_DEVICE_PORT",
+                        "hands": "HANDS_DEVICE_PORT",
+                    }
+                    if target_sense not in port_map:
+                        raise ValueError(f"unknown sense {target_sense!r}")
+                    self._json(200, post(url(port_map[target_sense], "/cue"), body))
                 elif self.path == "/api/link":
                     node = str(body.get("node", ""))
                     if node not in DEVICE_PORT:
                         raise ValueError(f"no device behind {node!r}")
                     self._json(200, post(url(DEVICE_PORT[node], "/link"), body))
+                elif self.path == "/api/pipelines":
+                    action = str(body.get("action", "start")).strip().lower()
+                    if action not in ("start", "stop"):
+                        raise ValueError(f"unknown pipeline action {action!r}")
+
+                    def _toggle(act: str = action) -> None:
+                        fn = cloud.rerun if act == "start" else cloud.stop
+                        workers = [
+                            threading.Thread(target=fn, args=(job,), daemon=True)
+                            for job in cloud.JOBS
+                        ]
+                        for t in workers:
+                            t.start()
+                        for t in workers:
+                            t.join()
+
+                    threading.Thread(target=_toggle, daemon=True).start()
+                    self._json(202, {"action": action, "jobs": list(cloud.JOBS)})
+                elif self.path == "/api/mic":
+                    with board.lock:
+                        prev_clap = dict(board.devices.get("hear-clap", {}))
+                    clap_res = post(url("CLAP_DEVICE_PORT", "/mic"), body)
+                    try:
+                        word_res = post(url("WORD_DEVICE_PORT", "/mic"), body)
+                    except (ValueError, OSError):
+                        with contextlib.suppress(ValueError, OSError):
+                            post(
+                                url("CLAP_DEVICE_PORT", "/mic"),
+                                {
+                                    "device": prev_clap.get("mic") or "dji",
+                                    "input_mode": prev_clap.get("input", "fixture"),
+                                },
+                            )
+                        raise
+                    self._json(
+                        200,
+                        {
+                            "clap": clap_res,
+                            "word": word_res,
+                            "mic": word_res.get("mic") or clap_res.get("mic"),
+                            "input": word_res.get("input") or clap_res.get("input"),
+                        },
+                    )
                 else:
                     self._json(404, {"error": "not found"})
             except (ValueError, OSError) as error:
@@ -246,18 +365,47 @@ def make_handler(board: Board) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
+def _open_stage_cam(spec: str) -> LiveCamera | None:
+    if not spec or spec.lower() in ("none", "off", "false"):
+        return None
+    try:
+        return LiveCamera(spec)
+    except Exception as error:
+        log.warning("stage camera %r unavailable: %s", spec, error)
+        return None
+
+
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--stage-cam", default=os.environ.get("RI_STAGE_CAM", DEFAULT_CAMERA))
+    ap.add_argument("--stage-cam-name", default=os.environ.get("RI_STAGE_CAM_NAME", ""))
+    ap.add_argument("--host", default=os.environ.get("RI_SCREEN_BIND", "127.0.0.1"))
+    args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    board = Board()
+    cam = _open_stage_cam(args.stage_cam)
+    cam_name = args.stage_cam_name.strip() or (cam.device_name if cam is not None else None)
+    board = Board(stage_cam=cam, stage_cam_name=cam_name)
     bus = Bus("screen", ("ri/sense/+", "ri/act", "ri/drone/state", "ri/device/+"))
     bus.on(board.on_message)
     bus.start()
     threading.Thread(target=board.poll_nodes, daemon=True).start()
     listen = port("PORT")
-    server = ThreadingHTTPServer(("127.0.0.1", listen), make_handler(board))
+    server = ThreadingHTTPServer((args.host, listen), make_handler(board))
     server.daemon_threads = True
-    log.info("screen on http://127.0.0.1:%d/", listen)
-    server.serve_forever()
+
+    def handle_stop(_signum: int, _frame: Any) -> None:
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, handle_stop)
+    log.info("screen on http://%s:%d/", args.host, listen)
+    try:
+        server.serve_forever()
+    finally:
+        if cam is not None:
+            cam.close()
+        with contextlib.suppress(Exception):
+            bus.stop()
     return 0
 
 

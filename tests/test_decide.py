@@ -208,3 +208,33 @@ def test_one_stray_hand_is_not_a_vote_in_progress() -> None:
     d.observe(hands(1, 18))
     action = d.decide(drone(), NOW)
     assert (action.act, action.because, action.waiting) == ("hold", "no instruction", False)
+
+
+@pytest.mark.parametrize("phase", ["taking_off", "climbing", "descending"])
+def test_move_holds_until_hovering(phase: Phase) -> None:
+    d = Decider()
+    d.observe(word("up"))
+    action = d.decide(drone(phase, 1.2), NOW)
+    assert (action.act, action.because) == ("hold", f"{phase}: wait for hover")
+
+
+@pytest.mark.parametrize("phase", ["taking_off", "climbing", "descending"])
+def test_stop_and_land_still_preempt_non_hovering_flight(phase: Phase) -> None:
+    d = Decider()
+    d.observe(word("stop", seq=1))
+    assert d.decide(drone(phase, 1.2), NOW).act == "stop"
+
+    d.observe(hands(14, 18, t=NOW + 0.2, seq=2))
+    assert d.decide(drone(phase, 1.2), NOW + 0.2).act == "land"
+
+
+def test_reset_and_suppress_pending() -> None:
+    d = Decider()
+    d.observe(clap(seq=1))
+    d.observe(word("up", seq=2))
+    d.suppress_pending()
+    assert d.decide(drone("dark", 0.0), NOW).act == "hold"
+
+    d.observe(clap(t=NOW + 0.1, seq=3))
+    d.reset()
+    assert d.decide(drone("dark", 0.0), NOW + 0.1).act == "hold"

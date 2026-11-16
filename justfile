@@ -3,14 +3,50 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 port := `uv run --no-project scripts/demo-ports.py resolve --demo-dir . --allow-bound --format json | jq -r .PORT`
 cloud := "uv run --no-project scripts/cloud_env.py --"
 nodes := "hear-clap hear-commands see-hands fly-drone"
+default_drone := "codrone"
+default_cam := "OBSBOT Tiny 2 Lite"
+default_mic := "dji"
 
 _default:
     @just --list
 
-# Broker, three sense devices, flight service, screen, four Expanso Edge
-# agents. The four jobs are deployed through Expanso Cloud and left stopped.
-up:
-    uv run python -m ri.stack up
+# List connected microphone and camera names/indices.
+cameras:
+    uv run python -m ri.capture
+
+# Default live rig: CoDrone EDU + live DJI/Mac mic + OBSBOT Tiny 2 Lite camera.
+# Override any part with parameters (for example `just up sim fixture none`).
+up drone=default_drone input="live" cam=default_cam mic=default_mic hands_input="":
+    uv run python -m ri.stack up --drone {{drone}} --input {{input}} --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input "{{ if hands_input != '' { hands_input } else { input } }}"
+
+# Fixture/simulator override when running without physical hardware.
+up-sim:
+    just up sim fixture none
+
+# Live CoDrone + live OBSBOT Tiny 2 Lite camera with fixture audio cues.
+up-cam cam=default_cam drone=default_drone:
+    just up {{drone}} fixture "{{cam}}" "{{default_mic}}" live
+
+# Alias for `just up` (CoDrone + OBSBOT Tiny 2 Lite + live DJI/Mac mic).
+up-live drone=default_drone cam=default_cam mic=default_mic:
+    just up {{drone}} live "{{cam}}" "{{mic}}"
+
+# Launch the rig AND immediately start all four Expanso Cloud pipelines.
+live drone=default_drone cam=default_cam mic=default_mic:
+    just up {{drone}} live "{{cam}}" "{{mic}}"
+    just start
+
+# Default hardware preflight: CoDrone EDU + OBSBOT Tiny 2 Lite + DJI/Mac audio.
+preflight drone=default_drone input="live" cam=default_cam:
+    uv run python -m ri.preflight --drone {{drone}} --input {{input}} --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input "{{input}}"
+
+# Preflight against simulator and fixtures (no physical hardware needed).
+preflight-sim:
+    uv run python -m ri.preflight --drone sim --input fixture --stage-cam none --hands-device "" --hands-input fixture
+
+# Alias for `just preflight`.
+preflight-cam drone=default_drone cam=default_cam input="live":
+    just preflight {{drone}} {{input}} "{{cam}}"
 
 # Stop every process, free every port, delete the four Cloud jobs.
 down:
@@ -19,12 +55,20 @@ down:
 status:
     uv run python -m ri.stack status
 
+# Start the four deployed Expanso Cloud jobs (`4/4 running`) for live flight.
+start:
+    uv run python -m ri.cloud start
+
+# Stop the four Expanso Cloud jobs back to `0/4` without shutting down services.
+stop-jobs:
+    uv run python -m ri.cloud stop
+
 # Drive the five-minute arc against a rig that is already up.
 run:
     uv run python -m ri.conductor
 
-# Record the whole run headless into recordings/, then check every beat.
-record-sim: up
+# Record the whole run headless on sim + fixtures into recordings/, then check every beat.
+record-sim: up-sim
     uv run python -m ri.record || { just down; exit 1; }
     just down
 
@@ -60,7 +104,7 @@ lint:
     uv run mypy
 
 test:
-    uv run pytest -q
+    YOLO_CONFIG_DIR=.runtime/ultralytics uv run pytest -q
 
 video-check:
     @uv run -s ../_demo-kit/lint-demo-ui.py . --video-strict

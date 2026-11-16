@@ -24,6 +24,10 @@ MAX_ALTITUDE_M = 2.0
 STEP_M = 0.5
 
 
+def clamp_altitude(altitude_m: float) -> float:
+    return max(WAKE_ALTITUDE_M, min(MAX_ALTITUDE_M, altitude_m))
+
+
 @dataclass(frozen=True)
 class Leds:
     color: LedColor = "off"
@@ -70,6 +74,10 @@ class DroneAdapter(Protocol):
     def set_leds(self, color: LedColor, mode: LedMode) -> None: ...
 
     def state(self) -> DroneState: ...
+
+    def emergency(self) -> None: ...
+
+    def close(self) -> None: ...
 
 
 def make_adapter(name: str) -> DroneAdapter:

@@ -83,6 +83,13 @@ class Decider:
             if decision is not None:
                 self.consumed.add(decision.key)
 
+    def reset(self) -> None:
+        self.latest.clear()
+        self.consumed.clear()
+
+    def suppress_pending(self) -> None:
+        self._consume(self.latest.get("clap"), self.latest.get("word"))
+
     def decide(self, drone: DroneState, now: float) -> Action:
         hands = self.fresh("hands", now)
         word = self._pending("word", now, WORD_MIN)
@@ -116,6 +123,10 @@ class Decider:
         # Rule 3, move: one step up or down inside the flight envelope.
         if drone.airborne and word is not None and word.value in ("up", "down"):
             self._consume(word)
+            if drone.phase != "hovering":
+                return Action(
+                    "hold", f"{drone.phase}: wait for hover", None, (word.label(),), t=now
+                )
             act: Act = "up" if word.value == "up" else "down"
             if act == "up" and drone.target_m + STEP_M > MAX_ALTITUDE_M + 1e-6:
                 return Action("hold", "ceiling reached", "move", (word.label(),), t=now)
