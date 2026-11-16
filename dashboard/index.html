@@ -12,8 +12,8 @@
 <header class="mast">
   <div class="mast-left">
     <h1>The drone with a nervous system</h1>
+    <span class="cloud-tag">Expanso Cloud</span>
     <span class="pipe-pill" id="pipeline-status" data-review-pipeline="off">off</span>
-    <p class="prompt" id="prompt" aria-live="polite"></p>
   </div>
   <div class="mast-controls" aria-label="safety and cue controls">
     <span class="alert-tag" id="link-alert" hidden>link notice</span>
@@ -24,11 +24,15 @@
   </div>
 </header>
 
+<div class="band">
+  <p class="prompt" id="prompt" aria-live="polite"></p>
+</div>
+
 <main class="stage" id="stage">
   <canvas id="flow" aria-hidden="true"></canvas>
 
   <div class="col col-senses">
-    <div class="col-label">senses</div>
+    <div class="col-label"><b>1 sense</b> sound and pictures stay here</div>
 
     <section class="sense" id="src-word" data-sense="word">
       <div class="sense-head">
@@ -41,17 +45,18 @@
             <button type="button" class="mic-opt" id="mic-mac" data-mic="macbook" title="Switch to MacBook microphone" aria-pressed="false">mac</button>
             <button type="button" class="mic-opt" id="mic-dji" data-mic="dji" title="Switch to DJI handheld mic" aria-pressed="false">dji</button>
           </div>
-          <span class="clap-pill" id="clap-pill">onset</span>
+          <span class="l" id="cap-word">local</span>
         </div>
       </div>
       <canvas class="wave" id="wave-mic" width="312" height="58" aria-label="live microphone waveform"></canvas>
+      <div class="word-pills" id="word-pills" aria-label="what the mic models listen for">
+        <span class="wpill clap-pill" id="clap-pill">clap</span>
+        <button type="button" class="wpill" data-w="up" tabindex="-1">up</button>
+        <button type="button" class="wpill" data-w="down" tabindex="-1">down</button>
+        <button type="button" class="wpill" data-w="stop" tabindex="-1">stop</button>
+      </div>
       <div class="sense-foot">
-        <div class="word-pills" id="word-pills" aria-label="recognized words">
-          <button type="button" class="wpill" data-w="up" tabindex="-1">up</button>
-          <button type="button" class="wpill" data-w="down" tabindex="-1">down</button>
-          <button type="button" class="wpill" data-w="stop" tabindex="-1">stop</button>
-        </div>
-        <span class="l dev-stat"><b id="raw-word" data-review-counter>0</b> <span id="cap-word">local</span></span>
+        <span class="l dev-stat"><b id="raw-word" data-review-counter>0</b> sound windows kept on this device</span>
       </div>
     </section>
 
@@ -61,7 +66,10 @@
           <svg class="device" viewBox="0 0 48 48" aria-hidden="true"><rect x="5" y="14" width="28" height="20" rx="3"/><path d="M33 20l10-5v18l-10-5z"/><circle cx="19" cy="24" r="5"/></svg>
           <h2>camera</h2>
         </div>
+      </div>
+      <div class="vote">
         <span class="hands-tally" id="hands-tally">--</span>
+        <span class="l vote-cap">hands up · over half lands it</span>
       </div>
       <div class="vote-bar" id="vote-bar"><i class="vote-fill" id="vote-fill"></i><i class="threshold" title="50% majority"></i></div>
       <div class="stage-cam" id="stage-cam" data-active="false">
@@ -69,55 +77,68 @@
         <span class="cam-label" id="cam-label">camera · offline</span>
       </div>
       <div class="sense-foot">
+        <span class="l dev-stat"><b id="raw-hands" data-review-counter>0</b> frames kept on this device</span>
         <span class="l" id="cap-hands">watching</span>
-        <span class="l dev-stat"><b id="raw-hands" data-review-counter>0</b> frames</span>
       </div>
     </section>
   </div>
 
   <div class="col col-nodes">
-    <div class="col-label">models</div>
+    <div class="col-label"><b>2 model</b> one decision out</div>
 
     <section class="node" id="node-hear-clap" data-node="hear-clap" data-cast="edge" data-live="off" data-state="off" title="ctrl-click: cut clap link">
       <div class="node-head">
         <span class="light" aria-hidden="true"></span>
         <h3>hear-clap</h3>
-        <div class="big" id="n-hear-clap">0</div>
       </div>
       <p class="model-desc">hearing model · yamnet + clap head</p>
-      <p class="l">claps · <span class="state" id="s-hear-clap">off</span></p>
+      <p class="node-last none" id="l-hear-clap">nothing sent</p>
+      <div class="node-count">
+        <div class="big" id="n-hear-clap">0</div>
+        <span class="l">claps sent</span>
+        <span class="state" id="s-hear-clap">off</span>
+      </div>
     </section>
 
     <section class="node" id="node-hear-commands" data-node="hear-commands" data-cast="edge" data-live="off" data-state="off" title="ctrl-click: cut voice link">
       <div class="node-head">
         <span class="light" aria-hidden="true"></span>
         <h3>hear-commands</h3>
-        <div class="big" id="n-hear-commands">0</div>
       </div>
       <p class="model-desc">speech command model · up / down / stop</p>
-      <p class="l">words · <span class="state" id="s-hear-commands">off</span></p>
+      <p class="node-last none" id="l-hear-commands">nothing sent</p>
+      <div class="node-count">
+        <div class="big" id="n-hear-commands">0</div>
+        <span class="l">words sent</span>
+        <span class="state" id="s-hear-commands">off</span>
+      </div>
     </section>
 
     <section class="node" id="node-see-hands" data-node="see-hands" data-cast="edge" data-live="off" data-state="off" title="ctrl-click: cut camera link">
       <div class="node-head">
         <span class="light" aria-hidden="true"></span>
         <h3>see-hands</h3>
-        <div class="big" id="n-see-hands">0</div>
       </div>
       <p class="model-desc">vision model · yolo11n hand pose</p>
-      <p class="l">hands · <span class="state" id="s-see-hands">off</span></p>
+      <p class="node-last none" id="l-see-hands">nothing sent</p>
+      <div class="node-count">
+        <div class="big" id="n-see-hands">0</div>
+        <span class="l">counts sent</span>
+        <span class="state" id="s-see-hands">off</span>
+      </div>
     </section>
   </div>
 
   <div class="col col-decide">
-    <div class="col-label">decide</div>
+    <div class="col-label"><b>3 decide</b> one rule table</div>
 
     <section class="node decide" id="node-fly-drone" data-node="fly-drone" data-cast="edge" data-live="off" data-state="off">
       <div class="decide-head">
         <span class="light" aria-hidden="true"></span>
         <h3>fly-drone</h3>
-        <span class="dec-count" id="n-fly-drone">0</span>
+        <span class="l dec-count"><b id="n-fly-drone">0</b> acts</span>
       </div>
+      <p class="l rule-cap">the highest rule that fires wins</p>
       <ol class="rules" id="rules">
         <li data-rule="land"><b>land</b><span>hands &gt; 50%</span><em class="rtag" aria-hidden="true"></em></li>
         <li data-rule="stop"><b>stop</b><span>word stop</span><em class="rtag" aria-hidden="true"></em></li>
@@ -130,22 +151,20 @@
   </div>
 
   <div class="col col-act">
-    <div class="col-label">act · commands &amp; drone</div>
+    <div class="col-label"><b>4 act</b> the drone</div>
 
     <section class="drone-card" id="drone" data-cast="dest" data-phase="dark">
       <div class="drone-top">
-        <div class="drone-status">
-          <span class="adapter-tag" id="adapter-tag">sim</span>
-          <span class="phase" id="phase">dark</span>
-          <span class="alt-readout" id="alt">on table</span>
-        </div>
+        <span class="adapter-tag" id="adapter-tag">sim</span>
         <span class="bat" id="bat" data-level="ok">battery --</span>
       </div>
-      <div class="arena">
+      <div class="arena" id="arena">
         <div class="scale" aria-hidden="true">
-          <span style="bottom:0%">0</span>
-          <span style="bottom:50%">1.0</span>
-          <span style="bottom:100%">2.0 m</span>
+          <span style="bottom:0%"><b>0</b></span>
+          <span style="bottom:25%"><b>0.5</b></span>
+          <span style="bottom:50%"><b>1.0</b></span>
+          <span style="bottom:75%"><b>1.5</b></span>
+          <span style="bottom:100%"><b>2.0 m</b></span>
         </div>
         <div class="air" id="air">
           <i class="target" id="target"></i>
@@ -158,81 +177,52 @@
             <path class="arm" d="M38 22v10h144V22"/>
             <rect class="hub" x="34" y="18" width="8" height="8" rx="2"/>
             <rect class="hub" x="178" y="18" width="8" height="8" rx="2"/>
+            <rect class="led-glow" id="led-glow" x="58" y="48" width="104" height="24" rx="12"/>
             <rect class="body" x="70" y="28" width="80" height="26" rx="8"/>
-            <rect class="led-glow" id="led-glow" x="72" y="54" width="76" height="12" rx="4"/>
             <rect class="led" id="led" x="80" y="56" width="60" height="8" rx="4"/>
             <path class="skid" d="M76 54l-8 18M144 54l8 18M60 72h28M132 72h28"/>
           </svg>
-          <i class="floor"></i>
         </div>
       </div>
+      <div class="drone-status">
+        <span class="phase" id="phase">dark</span>
+        <span class="alt-readout" id="alt">on table</span>
+      </div>
+      <div class="cmd-boxes" id="cmd-boxes" aria-label="commands the drone has run">
+        <div class="cmd-box" id="cmd-wake" data-cmd="wake" data-active="false"><span class="cmd-name">wake</span><span class="cmd-state" id="cs-wake">idle</span></div>
+        <div class="cmd-box" id="cmd-move" data-cmd="move" data-active="false"><span class="cmd-name">move</span><span class="cmd-state" id="cs-move">idle</span></div>
+        <div class="cmd-box" id="cmd-stop" data-cmd="stop" data-active="false"><span class="cmd-name">stop</span><span class="cmd-state" id="cs-stop">idle</span></div>
+        <div class="cmd-box" id="cmd-land" data-cmd="land" data-active="false"><span class="cmd-name">land</span><span class="cmd-state" id="cs-land">idle</span></div>
+      </div>
     </section>
-
-    <div class="cmd-boxes" id="cmd-boxes" aria-label="executed commands">
-      <section class="cmd-box" id="cmd-land" data-cmd="land" data-active="false">
-        <div class="cmd-head">
-          <span class="cmd-name">land</span>
-          <span class="cmd-trigger">hands &gt; 50%</span>
-          <span class="cmd-state" id="cs-land">idle</span>
-        </div>
-        <div class="cmd-foot">
-          <span class="cmd-detail" id="cd-land">safety descent to 0.0 m</span>
-          <span class="cmd-count" id="cc-land">0</span>
-        </div>
-      </section>
-
-      <section class="cmd-box" id="cmd-stop" data-cmd="stop" data-active="false">
-        <div class="cmd-head">
-          <span class="cmd-name">stop</span>
-          <span class="cmd-trigger">word stop</span>
-          <span class="cmd-state" id="cs-stop">idle</span>
-        </div>
-        <div class="cmd-foot">
-          <span class="cmd-detail" id="cd-stop">hold current hover altitude</span>
-          <span class="cmd-count" id="cc-stop">0</span>
-        </div>
-      </section>
-
-      <section class="cmd-box" id="cmd-move" data-cmd="move" data-active="false">
-        <div class="cmd-head">
-          <span class="cmd-name">move</span>
-          <span class="cmd-trigger">up / down</span>
-          <span class="cmd-state" id="cs-move">idle</span>
-        </div>
-        <div class="cmd-foot">
-          <span class="cmd-detail" id="cd-move">altitude step 1.0 to 2.0 m</span>
-          <span class="cmd-count" id="cc-move">0</span>
-        </div>
-      </section>
-
-      <section class="cmd-box" id="cmd-wake" data-cmd="wake" data-active="false">
-        <div class="cmd-head">
-          <span class="cmd-name">wake</span>
-          <span class="cmd-trigger">clap</span>
-          <span class="cmd-state" id="cs-wake">idle</span>
-        </div>
-        <div class="cmd-foot">
-          <span class="cmd-detail" id="cd-wake">arm motors and hover 1.0 m</span>
-          <span class="cmd-count" id="cc-wake">0</span>
-        </div>
-      </section>
-    </div>
   </div>
 
   <section class="reveal" id="reveal" aria-hidden="true">
-    <h2>Everything that travelled between the devices</h2>
     <div class="cards" id="reveal-cards"></div>
-    <p class="kept" id="kept"></p>
-  </section>
-
-  <section class="handoff" id="handoff" aria-hidden="true">
-    <p class="line">Three devices, three senses, one job.</p>
-    <p class="sub">Nothing left the room but decisions.</p>
+    <div class="kept" id="kept">
+      <div class="kept-row stayed">
+        <span class="kept-label">stayed on the devices</span>
+        <span class="kept-bar"><i id="kept-bar-raw"></i></span>
+        <b class="kept-num" id="kept-raw">0 B</b>
+        <span class="kept-what">sound and pictures</span>
+      </div>
+      <div class="kept-row left">
+        <span class="kept-label">left the devices</span>
+        <span class="kept-bar"><i id="kept-bar-sent"></i></span>
+        <b class="kept-num" id="kept-sent">0 B</b>
+        <span class="kept-what" id="kept-count">decisions</span>
+      </div>
+    </div>
   </section>
 </main>
 
+<section class="handoff" id="handoff" aria-hidden="true">
+  <p class="line">Three devices, three senses, one job.</p>
+  <p class="sub">Nothing left the room but decisions.</p>
+</section>
+
 <section class="shelf" id="shelf" aria-label="latest messages">
-  <h2>messages</h2>
+  <h2>messages on the wire</h2>
   <button class="slot" data-slot="clap"><span class="k none" id="m-clap">no clap</span><span class="l" id="a-clap">hear-clap</span></button>
   <button class="slot" data-slot="word"><span class="k none" id="m-word">no word</span><span class="l" id="a-word">hear-commands</span></button>
   <button class="slot" data-slot="hands"><span class="k none" id="m-hands">no count</span><span class="l" id="a-hands">see-hands</span></button>

@@ -38,17 +38,17 @@ crop planned for this stage lecture screen).
 
 ## Opening state
 
-Before beat 1 begins (`0:00`), the compact header displays `#pipeline-status` as
-`off` with safety buttons inside the right viewport boundary. Column 1 (`senses`)
-focuses exclusively on `mic` (sound waveform, `MAC` / `DJI` input toggle, `onset`
-chip, `UP/DOWN/STOP` pills) and `camera` (50% majority bar above the uncropped
-16:9 live `stage-cam` image). Column 2 (`models`) displays compact cards for
-`hear-clap` hearing model, `hear-commands` speech command model, and `see-hands`
-YOLO11n hand pose model sitting muted at `0`. Column 3 (`decide`) displays the
-compact `fly-drone` priority table branching cleanly into Column 4
-(`act · commands & drone`), which pairs the animated drone altitude arena
-(`dark` at `0.0 m`) with dedicated per-command execution boxes (`land`, `stop`,
-`move`, `wake`) and the bottom `messages` shelf.
+Before beat 1 begins (`0:00`), the operator bar displays `#pipeline-status` as
+`off` beside `Expanso Cloud`, with safety buttons at the right. Under it the
+prompt line reads the hook in large type. Column 1 (`1 sense`) holds `mic`
+(sound waveform, `MAC` / `DJI` input toggle, `CLAP/UP/DOWN/STOP` chips) and
+`camera` (hands-up count and 50% bar above the uncropped live `stage-cam`
+image). Column 2 (`2 model`) holds `hear-clap`, `hear-commands` and `see-hands`,
+each muted with `nothing sent` and a count of `0`. Column 3 (`3 decide`) holds
+the `fly-drone` rule table, whose four nerves run into Column 4 (`4 act`): a
+full-height drone altitude arena (`dark`, `on table`) over four command chips
+(`wake`, `move`, `stop`, `land`). The `messages on the wire` shelf sits below.
+The board is drawn at `1920x1080` and scales as a whole to the window.
 
 ## Operator action
 

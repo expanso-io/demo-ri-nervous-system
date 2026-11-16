@@ -1,8 +1,8 @@
 "use strict";
-/* Stage dashboard driven by /api/stream. Shows live mic waveform, live
-   square camera feed with hand bounding boxes, three model nodes, the
-   fly-drone priority decide table, per-command execution boxes, and the
-   latest messages shelf. */
+/* Stage dashboard driven by /api/stream. One prompt line for the room, then
+   four columns read left to right: the mic and camera, three model nodes,
+   the fly-drone rule table, and the drone in a tall flight arena. Nerve
+   lanes between the columns carry one impulse per real message. */
 
 const SAMPLES = 40;
 
@@ -24,12 +24,7 @@ const EMPTY = { clap: "no clap", word: "no word", hands: "no count" };
 
 const CMD_TYPES = ["land", "stop", "move", "wake"];
 
-const CMD_IDLE = {
-  land: "safety descent to 0.0 m",
-  stop: "hold current hover altitude",
-  move: "altitude step 1.0 to 2.0 m",
-  wake: "arm motors and hover 1.0 m",
-};
+const BEAT_TITLE = { reveal: "Everything that travelled between the devices." };
 
 const COLORS = {
   ember: "#d95d16",
@@ -122,25 +117,43 @@ let stageH = 680;
 
 let LANES = {};
 
+const BOARD_W = 1920;
+
+const BOARD_H = 1080;
+
+let boardScale = 1;
+
+/* Scale the whole 1920 x 1080 board to the window, centred. */
+function fitBoard() {
+  const k = Math.min(window.innerWidth / BOARD_W, window.innerHeight / BOARD_H);
+  const dx = (window.innerWidth - BOARD_W * k) / 2;
+  const dy = (window.innerHeight - BOARD_H * k) / 2;
+  boardScale = k;
+  document.body.style.transform = `translate(${dx}px, ${dy}px) scale(${k})`;
+}
+
+/* Element box in the board's own pixels, whatever the board is scaled to. */
 function relRect(el, origin) {
   const r = el.getBoundingClientRect();
+  const k = boardScale;
 
   return {
-    left: r.left - origin.left,
-    right: r.right - origin.left,
-    top: r.top - origin.top,
-    bottom: r.bottom - origin.top,
-    width: r.width,
-    height: r.height,
-    midY: r.top - origin.top + r.height * 0.5,
+    left: (r.left - origin.left) / k,
+    right: (r.right - origin.left) / k,
+    top: (r.top - origin.top) / k,
+    bottom: (r.bottom - origin.top) / k,
+    width: r.width / k,
+    height: r.height / k,
+    midY: (r.top - origin.top + r.height * 0.5) / k,
   };
 }
 
 function syncLayout() {
+  fitBoard();
   const rect = stageEl.getBoundingClientRect();
-  stageW = Math.max(1, rect.width);
-  stageH = Math.max(1, rect.height);
-  const dpr = window.devicePixelRatio || 1;
+  stageW = Math.max(1, stageEl.offsetWidth);
+  stageH = Math.max(1, stageEl.offsetHeight);
+  const dpr = (window.devicePixelRatio || 1) * Math.max(1, boardScale);
   const targetW = Math.round(stageW * dpr);
   const targetH = Math.round(stageH * dpr);
 
@@ -167,16 +180,16 @@ function syncLayout() {
     "imp-hands": curve({ x: hands.right, y: hands.midY }, { x: decide.left, y: decide.top + decide.height * 0.66 }),
   };
 
+  const droneCard = relRect($("drone"), rect);
+  const arena = relRect($("arena"), rect);
+
   for (const cmd of CMD_TYPES) {
     const ruleEl = document.querySelector(`#rules li[data-rule="${cmd}"]`);
-    const boxEl = $(`cmd-${cmd}`);
 
-    if (ruleEl && boxEl) {
-      const ruleRect = relRect(ruleEl, rect);
-      const boxRect = relRect(boxEl, rect);
+    if (ruleEl) {
       nextLanes[`act-${cmd}`] = curve(
-        { x: decide.right, y: ruleRect.midY },
-        { x: boxRect.left, y: boxRect.midY },
+        { x: decide.right, y: relRect(ruleEl, rect).midY },
+        { x: droneCard.left, y: arena.midY },
       );
     }
   }
@@ -184,8 +197,8 @@ function syncLayout() {
   LANES = nextLanes;
 
   const waveMic = $("wave-mic");
-  const wTarget = Math.max(120, Math.round(waveMic.clientWidth));
-  const hTarget = Math.max(40, Math.round(waveMic.clientHeight));
+  const wTarget = Math.max(120, Math.round(waveMic.clientWidth * dpr));
+  const hTarget = Math.max(40, Math.round(waveMic.clientHeight * dpr));
 
   if (waveMic.width !== wTarget || waveMic.height !== hTarget) {
     waveMic.width = wTarget;
@@ -252,9 +265,9 @@ function drawWaveform(ctx2d, bars, level, color, now) {
   ctx2d.stroke();
 
   const count = bars.length || 32;
-  const padX = 10;
+  const padX = width * 0.03;
   const span = (width - padX * 2) / count;
-  const barW = Math.max(3, span * 0.56);
+  const barW = Math.max(3, span * 0.6);
   const phase = now * 0.004;
 
   ctx2d.fillStyle = color;
@@ -263,11 +276,11 @@ function drawWaveform(ctx2d, bars, level, color, now) {
     const rawVal = (bars[i] ?? 0) / 99;
     const ripple = 0.08 + 0.08 * Math.sin(phase + i * 0.45);
     const amp = Math.min(1, Math.max(ripple, rawVal, level * (0.65 + 0.35 * Math.abs(Math.sin(phase + i * 0.6)))));
-    const h = Math.max(6, amp * (height - 14));
+    const h = Math.max(height * 0.08, amp * height * 0.86);
     const x = padX + i * span + (span - barW) / 2;
     ctx2d.globalAlpha = 0.4 + 0.6 * amp;
     ctx2d.beginPath();
-    ctx2d.roundRect(x, mid - h / 2, barW, h, 2);
+    ctx2d.roundRect(x, mid - h / 2, barW, h, barW / 2);
     ctx2d.fill();
   }
 
@@ -277,6 +290,10 @@ function drawWaveform(ctx2d, bars, level, color, now) {
 /* -------------------------------------------------------------- flow lines */
 
 const particles = [];
+
+const rings = [];
+
+const heat = {};
 
 const carry = {};
 
@@ -292,8 +309,11 @@ function spawn(lane, opts) {
     alpha: opts.alpha,
     end: opts.end ?? 1,
     trail: opts.trail ?? false,
+    ring: opts.ring ?? false,
     fadeFrom: opts.fadeFrom ?? 1,
   });
+
+  if (opts.ring) heat[lane] = { level: 1, color: opts.color };
 }
 
 function emitRaw(dt) {
@@ -310,8 +330,8 @@ function emitRaw(dt) {
       spawn(`raw-${sense}`, {
         speed: 0.72 + Math.random() * 0.22,
         color: cut ? COLORS.err : COLORS.idle,
-        size: 1.4 + Math.random() * 0.55,
-        alpha: 0.62,
+        size: 2.2 + Math.random() * 1.0,
+        alpha: 0.55,
         end: cut ? 0.38 : live ? 1 : 0.88,
         fadeFrom: cut ? 0.14 : live ? 0.92 : 0.62,
       });
@@ -326,7 +346,7 @@ function arrowHead(path) {
   const end = pts[pts.length - 1];
   const prev = pts[pts.length - 2];
   const ang = Math.atan2(end.y - prev.y, end.x - prev.x);
-  const len = 7;
+  const len = 11;
 
   ctx.beginPath();
   ctx.moveTo(end.x, end.y);
@@ -336,17 +356,42 @@ function arrowHead(path) {
   ctx.fill();
 }
 
-function guides() {
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "rgba(87, 80, 73, 0.22)";
-  ctx.fillStyle = "rgba(87, 80, 73, 0.35)";
+function trace(path) {
+  ctx.beginPath();
+  path.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.stroke();
+}
 
-  for (const path of Object.values(LANES)) {
-    ctx.beginPath();
-    path.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-    ctx.stroke();
-    arrowHead(path);
+/* Raw lanes are dotted: grains that stop at the model. Decision and act
+   lanes are solid nerves that light up in the colour of the last impulse. */
+function guides(dt) {
+  ctx.lineCap = "round";
+
+  for (const [name, path] of Object.entries(LANES)) {
+    const raw = name.startsWith("raw-");
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = raw ? 2 : 4;
+    ctx.setLineDash(raw ? [2, 9] : []);
+    ctx.strokeStyle = raw ? "rgba(87, 80, 73, 0.5)" : "rgba(87, 80, 73, 0.2)";
+    ctx.fillStyle = "rgba(87, 80, 73, 0.45)";
+    trace(path);
+    ctx.setLineDash([]);
+
+    const hot = heat[name];
+
+    if (hot && hot.level > 0.02) {
+      ctx.globalAlpha = Math.min(1, hot.level);
+      ctx.lineWidth = 4 + 4 * hot.level;
+      ctx.strokeStyle = hot.color;
+      ctx.fillStyle = hot.color;
+      trace(path);
+      hot.level -= dt * 0.55;
+    }
+
+    if (!raw) arrowHead(path);
   }
+
+  ctx.globalAlpha = 1;
 }
 
 let last = performance.now();
@@ -355,7 +400,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000) * SPEED;
   last = now;
   ctx.clearRect(0, 0, stageW, stageH);
-  guides();
+  guides(dt);
   emitRaw(dt);
 
   for (let i = particles.length - 1; i >= 0; i--) {
@@ -366,7 +411,11 @@ function frame(now) {
 
     p.t += (p.speed * dt * 160) / path.total;
 
-    if (p.t >= p.end) { particles.splice(i, 1); continue; }
+    if (p.t >= p.end) {
+      if (p.ring) rings.push({ ...at(path, 1), color: p.color, t: 0 });
+      particles.splice(i, 1);
+      continue;
+    }
 
     const pt = at(path, p.t);
     const fade = p.t > p.fadeFrom ? 1 - (p.t - p.fadeFrom) / Math.max(0.01, p.end - p.fadeFrom) : 1;
@@ -375,19 +424,38 @@ function frame(now) {
     ctx.fillStyle = p.color;
 
     if (p.trail) {
-      for (let k = 4; k >= 1; k--) {
-        const tp = at(path, Math.max(0, p.t - k * 0.04));
-        ctx.globalAlpha = alpha * (0.28 * (1 - k / 5));
+      for (let k = 7; k >= 1; k--) {
+        const tp = at(path, Math.max(0, p.t - k * 0.035));
+        ctx.globalAlpha = alpha * (0.4 * (1 - k / 8));
         ctx.beginPath();
-        ctx.arc(tp.x, tp.y, p.size * (1 - k * 0.12), 0, Math.PI * 2);
+        ctx.arc(tp.x, tp.y, p.size * (1 - k * 0.09), 0, Math.PI * 2);
         ctx.fill();
       }
+
+      ctx.globalAlpha = alpha * 0.22;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, p.size * 2.3, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     ctx.globalAlpha = alpha;
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, p.size, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const r = rings[i];
+    r.t += dt / 0.7;
+
+    if (r.t >= 1) { rings.splice(i, 1); continue; }
+
+    ctx.globalAlpha = 0.8 * (1 - r.t);
+    ctx.strokeStyle = r.color;
+    ctx.lineWidth = 4 * (1 - r.t) + 1;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, 10 + 34 * r.t, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   ctx.globalAlpha = 1;
@@ -456,7 +524,7 @@ function renderMicSwitch(clapTele, wordTele, now) {
 
   if (live && raw && !isDji && !isMac) return raw.slice(0, 14);
 
-  if (!live) return "local";
+  if (!live) return "";
 
   const bytesSeen = Math.max(clapTele?.captured_bytes ?? 0, wordTele?.captured_bytes ?? 0);
   const micPeak = Math.max(clapTele?.level ?? 0, wordTele?.level ?? 0, ...(clapTele?.wave || [0]), ...(wordTele?.wave || [0]));
@@ -517,7 +585,7 @@ function renderSenses(now) {
     voteFill.style.width = `${pct}%`;
     voteFill.classList.toggle("majority", majority);
     voteFill.classList.toggle("waiting", waiting);
-    tally.textContent = `${up}/${seen} (${pct}%)`;
+    tally.textContent = `${up} of ${seen}`;
     tally.classList.toggle("majority", majority);
     tally.classList.toggle("waiting", waiting);
   } else {
@@ -577,28 +645,12 @@ function renderCommands(now) {
     const isActive = activeCmd === cmd;
     box.dataset.active = String(isActive);
 
-    if (cmd === "move") {
-      box.dataset.dir = recent?.act === "down" ? "down" : "up";
-    }
+    if (cmd === "move") box.dataset.dir = recent?.act === "down" ? "down" : "up";
 
-    const stEl = $(`cs-${cmd}`);
-    const dtEl = $(`cd-${cmd}`);
-    const ctEl = $(`cc-${cmd}`);
-    const count = ui.cmdCounts[cmd] ?? 0;
-
-    if (isActive && recent) {
-      stEl.textContent = cmd === "move" ? recent.act : "active";
-      dtEl.textContent = recent.because || CMD_IDLE[cmd];
-    } else if (lastItem) {
-      const ago = ageText(age(lastItem, now));
-      stEl.textContent = ago ? `${ago} ago` : "ran";
-      dtEl.textContent = lastItem.because || CMD_IDLE[cmd];
-    } else {
-      stEl.textContent = "idle";
-      dtEl.textContent = CMD_IDLE[cmd];
-    }
-
-    ctEl.textContent = count ? `${count}x` : "0";
+    const ago = lastItem ? ageText(age(lastItem, now)) : "";
+    $(`cs-${cmd}`).textContent = isActive
+      ? (cmd === "move" ? recent.act : "now")
+      : ago ? `${ago} ago` : "idle";
   }
 }
 
@@ -623,6 +675,17 @@ function render(now) {
     const slot = document.querySelector(`.slot[data-slot="${sense}"]`);
     const a = age(m, now);
     const text = label(sense, m);
+    const lastEl = $(`l-${node}`);
+    lastEl.textContent = text ?? "nothing sent";
+    lastEl.classList.toggle("none", !text);
+    lastEl.classList.toggle("fresh", sense !== "hands" && a < FRESH_S);
+
+    if (sense === "hands") {
+      const quorum = Boolean(m && n.live && m.seen >= 10);
+      lastEl.classList.toggle("majority", quorum && m.share > 0.5);
+      lastEl.classList.toggle("waiting", quorum && m.share >= 0.2 && m.share <= 0.5);
+    }
+
     const k = $(`m-${sense}`);
     k.textContent = text ?? EMPTY[sense];
     k.classList.toggle("none", !text);
@@ -659,7 +722,9 @@ function render(now) {
 
   if (document.body.dataset.beat !== scene.beat) document.body.dataset.beat = scene.beat || "hook";
 
-  if (scene.prompt !== ui.lastScenePrompt) swapPrompt(scene.prompt || "");
+  const promptText = scene.prompt || BEAT_TITLE[scene.beat] || "";
+
+  if (promptText !== ui.lastScenePrompt) swapPrompt(promptText);
 }
 
 function renderDecide(now) {
@@ -689,11 +754,13 @@ function renderDecide(now) {
     const rule = li.dataset.rule;
     const won = Boolean(recent && recent.rule === rule);
     const lost = (rule === "move" && lostWord) || (rule === "stop" && lostStop);
+    const pending = !won && rule === "land" && shown?.act === "hold" && Boolean(shown?.waiting);
     li.classList.toggle("won", won);
     li.classList.toggle("lost", lost);
+    li.classList.toggle("pending", pending);
     const tag = li.querySelector(".rtag");
 
-    if (tag) tag.textContent = won ? "wins" : lost ? "lost" : "";
+    if (tag) tag.textContent = won ? "wins" : lost ? "lost" : pending ? "not yet" : "";
   }
 
   const slotK = $("m-act");
@@ -766,11 +833,12 @@ function renderDrone() {
   const h = Math.max(36, airH - quadH);
   const ratio = Math.max(0, Math.min(1, d.altitude_m / 2.0));
   $("quad").style.bottom = `${ratio * h}px`;
-  $("shadow").style.transform = `scale(${1 - ratio * 0.35})`;
-  $("shadow").style.opacity = String(0.85 - ratio * 0.5);
+  $("shadow").style.transform = `scale(${1 - ratio * 0.45})`;
+  $("shadow").style.opacity = String(0.9 - ratio * 0.6);
 
   const target = $("target");
-  target.style.bottom = `${Math.max(0, Math.min(1, d.target_m / 2.0)) * h + quadH - 4}px`;
+  target.style.bottom = `${Math.max(0, Math.min(1, d.target_m / 2.0)) * h}px`;
+  target.style.borderTopColor = d.phase === "descending" ? COLORS.warn : COLORS.up;
   target.style.opacity = d.target_m > 0 && d.phase !== "parked" ? "0.9" : "0";
 
   const ledColor = LED[d.leds?.color] ?? COLORS.idle;
@@ -783,10 +851,16 @@ function renderDrone() {
   ledGlow.style.animation = breathe;
 
   $("phase").textContent = PHASE[d.phase] ?? d.phase;
-  $("phase").style.color = d.phase === "parked" ? COLORS.ok : d.phase === "landing" ? COLORS.err : COLORS.ink;
-  const alt = `${d.altitude_m.toFixed(1)} m`;
-  $("alt").textContent = d.phase === "dark" ? "on table" : d.target_m > 0 && Math.abs(d.target_m - d.altitude_m) > 0.05
-    ? `${alt} -> ${d.target_m.toFixed(1)} m` : alt;
+  $("phase").style.color = {
+    parked: COLORS.ok,
+    landing: COLORS.err,
+    climbing: COLORS.up,
+    descending: COLORS.warn,
+    dark: COLORS.idle,
+  }[d.phase] ?? COLORS.ink;
+  // The target altitude is the dashed line in the arena, so the readout is
+  // only where the drone is now.
+  $("alt").textContent = d.phase === "dark" ? "on table" : `${d.altitude_m.toFixed(1)} m`;
 
   const camBox = $("stage-cam");
   const camImg = $("cam-img");
@@ -803,12 +877,23 @@ function renderDrone() {
   }
 }
 
+/* The prompt is one line at one size. On a narrower projector a long line
+   is scaled to fit rather than cut off. */
+function fitPrompt() {
+  const el = $("prompt");
+  const room = el.parentElement.clientWidth - 64;
+  const need = el.offsetWidth;
+  el.style.transform = need > room ? `scale(${room / need})` : "none";
+}
+
 function swapPrompt(text) {
   ui.lastScenePrompt = text;
   const el = $("prompt");
   el.classList.add("swap");
-  setTimeout(() => { el.textContent = text; el.classList.remove("swap"); }, 220);
+  setTimeout(() => { el.textContent = text; fitPrompt(); el.classList.remove("swap"); }, 220);
 }
+
+document.fonts?.ready.then(fitPrompt);
 
 /* ------------------------------------------------------------ the reveal */
 
@@ -867,7 +952,7 @@ function buildReveal() {
       h.textContent = NODE_OF[sense];
       const l = document.createElement("p");
       l.className = "l";
-      l.textContent = m ? `${titles[sense]} · ${bytes(payloadBytes(m))}` : titles[sense];
+      l.append(`${titles[sense]} · `, m ? bold(bytes(payloadBytes(m))) : "nothing yet");
       const pre = document.createElement("pre");
       pre.className = "json";
 
@@ -880,10 +965,13 @@ function buildReveal() {
   const kept = state?.kept;
 
   if (kept) {
-    $("kept").replaceChildren(
-      "Stayed on the devices: ", bold(bytes(kept.raw_bytes)), " of sound and pictures. ",
-      "Left them: ", bold(bytes(kept.decision_bytes)), ` in ${kept.decisions} decisions.`,
-    );
+    const share = kept.raw_bytes > 0 ? kept.decision_bytes / kept.raw_bytes : 0;
+    $("kept-raw").textContent = bytes(kept.raw_bytes);
+    $("kept-raw").dataset.what = "of sound and pictures";
+    $("kept-sent").textContent = bytes(kept.decision_bytes);
+    $("kept-sent").dataset.what = `in ${kept.decisions} decisions`;
+    $("kept-bar-raw").style.width = "100%";
+    $("kept-bar-sent").style.width = `${Math.min(100, share * 100)}%`;
   }
 }
 
@@ -934,14 +1022,20 @@ function apply(snapshot) {
         const sense = SENSE_OF[p.node];
 
         if (sense) {
+          // The camera reports several times a second. A routine count is a
+          // small impulse; a count that could land the drone is a full one.
+          const hands = snapshot.latest?.hands;
+          const loud = sense !== "hands" || (hands?.seen >= 10 && hands?.share >= 0.2);
           spawn(`imp-${sense}`, {
             speed: 1.05,
-            color: COLORS.ember,
-            size: 2.75,
-            alpha: 0.9,
+            color: sense === "hands" && hands?.share > 0.5 ? COLORS.err : COLORS.ember,
+            size: loud ? 8 : 4,
+            alpha: loud ? 0.95 : 0.7,
             trail: true,
+            ring: loud,
           });
-          flash(`node-${p.node}`);
+
+          if (loud) flash(`node-${p.node}`);
         }
       } else if (p.kind === "act") {
         const actItem = snapshot.act;
@@ -951,9 +1045,10 @@ function apply(snapshot) {
           spawn(`act-${cmd}`, {
             speed: 1.0,
             color: ACT_COLOR[actItem?.act] ?? COLORS.ember,
-            size: 3.0,
+            size: 9,
             alpha: 0.95,
             trail: true,
+            ring: true,
           });
         }
       }

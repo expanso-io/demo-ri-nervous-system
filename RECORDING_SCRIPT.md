@@ -29,10 +29,9 @@ its window.
 ## Beat 1: Hook · 0:00-0:30
 
 **Screen state before you speak.** Drone dark on the table. Both live stage
-senses show scrolling waveforms (`onset` chip and `UP/DOWN/STOP` vocabulary
-pills on `handheld mic`, motion waveform and quorum bar on `camera`, plus the
-live `stage cam` viewport in the Act card when running live camera); the
-Expanso nodes are grey. At 0:08 the four pipelines start in Expanso Cloud and
+senses are alive (waveform and the `CLAP` / `UP` / `DOWN` / `STOP` chips on
+`mic`, the hands-up bar and live view on `camera`); the Expanso nodes are grey
+and the prompt line reads the hook across the top of the screen. At 0:08 the four pipelines start in Expanso Cloud and
 the nodes turn green.
 
 > Every AI you have used lives in a building the size of a football pitch, a
@@ -42,9 +41,10 @@ the nodes turn green.
 
 ## Beat 2: Clap to wake it · 0:30-1:15
 
-**Screen state before you speak.** At 0:33 the room claps. The `onset` badge
-flashes on `handheld mic`, hear-clap sends one message, the wake rule lights
-`WINS`, and the drone rises to hover at 1.0 m with white LEDs.
+**Screen state before you speak.** At 0:33 the room claps. The `CLAP` chip
+lights on `mic`, hear-clap shows `clap 0.96` and sends one impulse down its
+nerve to fly-drone, the wake rule lights `WINS`, and the drone rises to hover
+at 1.0 m with white LEDs.
 
 > That device heard a clap and sent one word. Not the sound. One word.
 
@@ -53,7 +53,7 @@ flashes on `handheld mic`, hear-clap sends one message, the wake rule lights
 ## Beat 3: Shout up or down · 1:15-2:15
 
 **Screen state before you speak.** A volunteer says up, up, down, down, up.
-Each recognized word lights its pill (`UP`, `DOWN`, or `STOP`), moves the
+Each recognized word lights its chip (`UP`, `DOWN`, or `STOP`), moves the
 `move` rule to `WINS`, and steers climbs in blue and descents in amber
 inside its 1.0 to 2.0 m envelope.
 
@@ -65,8 +65,8 @@ inside its 1.0 to 2.0 m envelope.
 ## Beat 4: Hands up to land it · 2:15-3:15
 
 **Screen state before you speak.** Some hands go up: the camera meter swaps to
-an amber quorum bar below the 50% threshold tick, `fly-drone` reads
-"waiting: N of M", and the drone holds. Then more than half go up: the bar
+an amber bar below the 50% tick, the `land` rule reads `NOT YET`, `fly-drone`
+reads "waiting: N of M", and the drone holds. Then more than half go up: the bar
 crosses the tick in red, `land` lights `WINS`, and it lands, parks, LEDs
 breathing green. At 3:00 a clap wakes it again.
 
@@ -90,8 +90,8 @@ in the rule table, and the reason reads `hands <share> > word up` (for example
 
 **Screen state before you speak.** Three message cards show the last clap,
 the last word, and the last hand count with byte sizes matching the shelf
-below, over the live total stayed on devices (in MB) against what left them
-(in KB).
+below. Under them, two bars on one scale: what stayed on the devices (MB,
+a full bar) and what left them (KB, a sliver).
 
 > Here is everything that travelled between these devices during that run. No
 > picture of you left that camera. No sound left that microphone. Three

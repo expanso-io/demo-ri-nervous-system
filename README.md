@@ -82,7 +82,7 @@ and pipelines):
 - `--hands-roi x,y,w,h` (`RI_HANDS_ROI`) and `RI_PERSON_MIN`: crop the front
   camera onto the audience voting block and set minimum person confidence.
 - `--stage-cam SOURCE` (`RI_STAGE_CAM`): stream an MJPEG camera preview inside
-  the Act card on stage (accepts a camera name, index, or stream URL).
+  the camera card on stage (accepts a camera name, index, or stream URL).
 - Multi-host Raspberry Pi deployment: set `RI_MQTT_BIND` / `RI_MQTT_HOST`,
   `RI_FLIGHT_BIND` / `RI_FLIGHT_HOST`, `RI_DEVICE_BIND`, `RI_SCREEN_BIND`, and
   per-device `RI_CLAP_INPUT`, `RI_WORD_INPUT`, `RI_HANDS_INPUT` / `RI_*_DEVICE`.

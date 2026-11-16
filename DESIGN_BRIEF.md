@@ -32,20 +32,36 @@ particles, live waveforms, and the on-screen drone read effortlessly from row 10
 Type: Newsreader (OFL, vendored) for the one prompt line, monospace for concise
 telemetry and inspected messages, keeping text minimal.
 
+## Stage layout
+
+The board is drawn at 1920 x 1080 and scaled as a whole to whatever screen it
+is on, so every projector shows the same picture. Top to bottom:
+
+1. A slim operator bar: Expanso Cloud status and the safety buttons.
+2. The prompt line, the largest thing on the screen, because it is the only
+   thing the room has to do.
+3. Four full-height columns read left to right: `1 sense`, `2 model`,
+   `3 decide`, `4 act`. Each model node shows the last message it sent, which
+   is the whole of what left that box. The drone gets a tall flight arena
+   whose scale is the one its skids travel, with the phase as one large word.
+4. The message shelf, for clicking into the exact payloads.
+
 ## Scenario cast
 
 - **Sources (waveforms + live meters):** one `handheld mic` (auto-preferring a
-  plugged-in DJI mic with built-in MacBook mic fallback; live waveform + `onset`
-  and `UP`/`DOWN`/`STOP` pills) feeding both `hear-clap` and `hear-commands`, plus
+  plugged-in DJI mic with built-in MacBook mic fallback; live waveform +
+  `CLAP`/`UP`/`DOWN`/`STOP` chips) feeding both `hear-clap` and `hear-commands`, plus
   `camera` (live motion waveform + 50% threshold voting bar).
 - **Expanso nodes:** `hear-clap`, `hear-commands`, `see-hands`. Compact cards
   stay light grey until active, then glow emerald with thick particle trails.
 - **Decide:** `fly-drone`, an Expanso node with the concise rule table on its
   face (`land > stop > move > wake`), tagging the winning rule (`WINS`) and any
   beaten rule (`LOST`, struck through).
-- **Act (Hero Drone + Stage Cam):** oversized drone flight arena (`0` to `2.0 m`,
-  animated rotors, visible LED glow) paired with a live `stage cam` viewport
-  fed cleanly from the single attached physical camera (`OBSBOT Tiny 2 Lite`).
+- **Act (Hero Drone):** full-height flight arena (`0` to `2.0 m`, animated
+  rotors, visible LED glow, dashed target line), the phase as one large word,
+  and four chips for the last time each command ran. The live camera view sits
+  in the `camera` sense card, fed from the single attached physical camera
+  (`OBSBOT Tiny 2 Lite`).
 - **Orchestrator:** Expanso Cloud above the nodes, with dashed control lanes
   carrying deploy signals down and status up.
 - **Operator bar and reveal:** header clicker lock toggle, `land [Esc]` and
@@ -54,12 +70,16 @@ telemetry and inspected messages, keeping text minimal.
 
 ## Lane semantics
 
-- Sense to node: dim grains, density from each device's measured window rate.
+- Sense to node: a dotted lane of dim grains, density from each device's measured window rate.
   They dissipate at the node's wall while it is off and enter it while it is
   on. They never continue past it.
-- Node to fly-drone: one bright ember impulse per real decision message on the
-  MQTT bus, so the counters and the impulses always agree.
-- fly-drone to drone: one impulse per act, in that act's colour.
+- Node to fly-drone: one ember impulse per real decision message on the MQTT
+  bus, so the counters and the impulses always agree. The nerve it travels
+  lights up and fades, and a ring marks its arrival. The camera reports
+  several times a second, so a routine count is a small impulse and only a
+  count that could land the drone is a full one.
+- fly-drone to drone: one impulse per act, in that act's colour, from the
+  winning rule to the flight arena.
 - Cloud lanes: deploy and status signals, never data.
 
 ## Deviations, with reasons
@@ -67,5 +87,7 @@ telemetry and inspected messages, keeping text minimal.
 - The camera meter shows frame activity, not a people count. Counting people
   needs the model, and the model runs inside the pipeline, which is off in the
   zero state.
+- The four per-command boxes that repeated the rule table are now a strip of
+  four chips under the arena; the rule table is the one place rules are read.
 - Three mockups were not taken to David before the build because of the
   recording deadline. The layout follows BUILD_SPEC part 7 directly.
