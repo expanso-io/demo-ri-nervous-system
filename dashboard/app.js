@@ -685,7 +685,12 @@ function renderMicSwitch(clapTele, wordTele, now) {
 
   if (ui.micNotice.until > now) return ui.micNotice.text;
 
-  return "";
+  // The device is delivering audio frames and every sample in them is zero.
+  // That is the operating system withholding the microphone, not a quiet room.
+  const bytesSeen = Math.max(clapTele?.captured_bytes ?? 0, wordTele?.captured_bytes ?? 0);
+  const peak = Math.max(clapTele?.level ?? 0, wordTele?.level ?? 0, ...(clapTele?.wave || [0]), ...(wordTele?.wave || [0]));
+
+  return live && bytesSeen > 120000 && peak === 0 ? "no sound reaching mic" : "";
 }
 
 function renderSenses(now) {
