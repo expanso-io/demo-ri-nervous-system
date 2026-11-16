@@ -1,5 +1,5 @@
 [review_shots]
-labels = "h1, h2, h3, #pipeline-status, .cmd-name"
+labels = "h1, h2, h3, #pipeline-status, #phase"
 counters = "[data-review-counter]"
 particles = "canvas#flow"
 pipeline = "#pipeline-status"

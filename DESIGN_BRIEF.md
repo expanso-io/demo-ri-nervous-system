@@ -40,11 +40,26 @@ is on, so every projector shows the same picture. Top to bottom:
 1. A slim operator bar: Expanso Cloud status and the safety buttons.
 2. The prompt line, the largest thing on the screen, because it is the only
    thing the room has to do.
-3. Four full-height columns read left to right: `1 sense`, `2 model`,
-   `3 decide`, `4 act`. Each model node shows the last message it sent, which
-   is the whole of what left that box. The drone gets a tall flight arena
-   whose scale is the one its skids travel, with the phase as one large word.
-4. The message shelf, for clicking into the exact payloads.
+3. The show, across the top: a wide flight arena where the drone draws its
+   own altitude trail, with one mark on the trail for each thing the room did
+   (`clap`, `up`, `down`, `stop`, `hands up`). Beside it, the phase as one
+   large word, the altitude, and the one reason for the last act in plain
+   words (`hands 83% beats word up`).
+4. The nervous system, underneath, read left to right and then up: `sense`,
+   `model`, `decide`. Rows are in priority order on both sides (camera and
+   `see-hands` on top, clap at the bottom), so no lane crosses another and
+   "the highest rule that fires wins" is literally the highest row. One nerve
+   runs from the rule table up to the drone, wherever it is flying.
+
+Nothing the room is meant to read is smaller than 18px. Operator controls
+(safety buttons, the microphone source switch) stay hidden until the pointer
+is on them; `Esc` still lands the drone. No device or model vendor names
+appear on the board.
+
+Why two tiers and not four columns: four equal columns gave the model boxes
+as much screen as the drone and read as an architecture diagram. Shrunk to a
+back-row view, the two-tier board keeps the phase, the reason and the rule
+table legible where the column board lost them.
 
 ## Scenario cast
 
@@ -57,11 +72,11 @@ is on, so every projector shows the same picture. Top to bottom:
 - **Decide:** `fly-drone`, an Expanso node with the concise rule table on its
   face (`land > stop > move > wake`), tagging the winning rule (`WINS`) and any
   beaten rule (`LOST`, struck through).
-- **Act (Hero Drone):** full-height flight arena (`0` to `2.0 m`, animated
-  rotors, visible LED glow, dashed target line), the phase as one large word,
-  and four chips for the last time each command ran. The live camera view sits
-  in the `camera` sense card, fed from the single attached physical camera
-  (`OBSBOT Tiny 2 Lite`).
+- **Act (Hero Drone):** wide flight arena (`0` to `2.0 m`, animated rotors,
+  visible LED glow, dashed target line, altitude trail with command marks),
+  the phase as one large word and the reason beside it. The live camera view
+  sits in the `camera` sense card, fed from the single attached physical
+  camera; its product name is never shown.(`OBSBOT Tiny 2 Lite`).
 - **Orchestrator:** Expanso Cloud above the nodes, with dashed control lanes
   carrying deploy signals down and status up.
 - **Operator bar and reveal:** header clicker lock toggle, `land [Esc]` and
@@ -78,8 +93,8 @@ is on, so every projector shows the same picture. Top to bottom:
   lights up and fades, and a ring marks its arrival. The camera reports
   several times a second, so a routine count is a small impulse and only a
   count that could land the drone is a full one.
-- fly-drone to drone: one impulse per act, in that act's colour, from the
-  winning rule to the flight arena.
+- fly-drone to drone: one impulse per act, in that act's colour, up the one
+  nerve from the rule table to the drone's skids.
 - Cloud lanes: deploy and status signals, never data.
 
 ## Deviations, with reasons
@@ -87,7 +102,8 @@ is on, so every projector shows the same picture. Top to bottom:
 - The camera meter shows frame activity, not a people count. Counting people
   needs the model, and the model runs inside the pipeline, which is off in the
   zero state.
-- The four per-command boxes that repeated the rule table are now a strip of
-  four chips under the arena; the rule table is the one place rules are read.
+- The four per-command boxes, the act history list and the message shelf are
+  gone. The marks on the flight trail carry the history, and each model node's
+  message is clickable for the exact payload.
 - Three mockups were not taken to David before the build because of the
   recording deadline. The layout follows BUILD_SPEC part 7 directly.

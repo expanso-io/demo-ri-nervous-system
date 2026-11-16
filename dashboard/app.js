@@ -1,8 +1,8 @@
-"use strict";
-/* Stage dashboard driven by /api/stream. One prompt line for the room, then
-   four columns read left to right: the mic and camera, three model nodes,
-   the fly-drone rule table, and the drone in a tall flight arena. Nerve
-   lanes between the columns carry one impulse per real message. */
+/* The audience screen. Two tiers: the drone and its flight trail on top, the
+   nervous system underneath. Three sense devices on the left hold everything
+   they capture; three models turn that into one small message each; one rule
+   table decides; one act goes up to the drone. Lanes carry one impulse per
+   real message. */
 
 const SAMPLES = 40;
 
@@ -19,8 +19,6 @@ const NODES = ["hear-clap", "hear-commands", "see-hands"];
 const NODE_OF = { clap: "hear-clap", word: "hear-commands", hands: "see-hands" };
 
 const SENSE_OF = { "hear-clap": "clap", "hear-commands": "word", "see-hands": "hands" };
-
-const EMPTY = { clap: "no clap", word: "no word", hands: "no count" };
 
 const CMD_TYPES = ["land", "stop", "move", "wake"];
 
@@ -105,6 +103,8 @@ function at(path, t) {
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
 }
 
+let state = null;
+
 const stageEl = $("stage");
 
 const flowCanvas = $("flow");
@@ -116,6 +116,36 @@ let stageW = 1440;
 let stageH = 680;
 
 let LANES = {};
+
+/* Where the flight arena sits on the stage, in board pixels. */
+let sky = { left: 0, top: 0, w: 1, h: 1, droneX: 0, groundY: 0, travel: 1, decideTop: 0 };
+
+const trailCtx = $("trail").getContext("2d");
+
+/* Trail samples: the drone's altitude over the last minute and a half. */
+const trailPts = [];
+
+const TRAIL_S = 80;
+
+const TRAIL_LEFT = 76;
+
+const TRAIL_LABEL = { wake: "clap", up: "up", down: "down", stop: "stop", land: "hands up" };
+
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v));
+}
+
+function skidY(altitude) {
+  return sky.groundY - clamp01(altitude / 2.0) * sky.travel;
+}
+
+/* The one nerve to the drone: from the rule table up to its skids, wherever
+   it is flying. */
+function actLane() {
+  const y = skidY(state?.drone?.altitude_m ?? 0);
+
+  return polyline([{ x: sky.droneX, y: sky.decideTop }, { x: sky.droneX, y: y + 4 }]);
+}
 
 const BOARD_W = 1920;
 
@@ -170,30 +200,45 @@ function syncLayout() {
   const word = relRect($("node-hear-commands"), rect);
   const hands = relRect($("node-see-hands"), rect);
   const decide = relRect($("node-fly-drone"), rect);
+  const ruleY = (rule) => relRect(document.querySelector(`#rules li[data-rule="${rule}"]`), rect);
+  const moveRow = ruleY("move");
+  const stopRow = ruleY("stop");
 
+  // Rows are in priority order on both sides, so no lane crosses another.
   const nextLanes = {
-    "raw-clap": curve({ x: mic.right, y: mic.top + mic.height * 0.34 }, { x: clap.left, y: clap.midY }),
-    "raw-word": curve({ x: mic.right, y: mic.top + mic.height * 0.66 }, { x: word.left, y: word.midY }),
     "raw-hands": curve({ x: cam.right, y: cam.midY }, { x: hands.left, y: hands.midY }),
-    "imp-clap": curve({ x: clap.right, y: clap.midY }, { x: decide.left, y: decide.top + decide.height * 0.34 }),
-    "imp-word": curve({ x: word.right, y: word.midY }, { x: decide.left, y: decide.midY }),
-    "imp-hands": curve({ x: hands.right, y: hands.midY }, { x: decide.left, y: decide.top + decide.height * 0.66 }),
+    "raw-word": curve({ x: mic.right, y: mic.top + mic.height * 0.3 }, { x: word.left, y: word.midY }),
+    "raw-clap": curve({ x: mic.right, y: mic.top + mic.height * 0.7 }, { x: clap.left, y: clap.midY }),
+    "imp-hands": curve({ x: hands.right, y: hands.midY }, { x: decide.left, y: ruleY("land").midY }),
+    "imp-word": curve({ x: word.right, y: word.midY }, { x: decide.left, y: (stopRow.bottom + moveRow.top) / 2 }),
+    "imp-clap": curve({ x: clap.right, y: clap.midY }, { x: decide.left, y: ruleY("wake").midY }),
   };
 
-  const droneCard = relRect($("drone"), rect);
-  const arena = relRect($("arena"), rect);
+  const trailEl = $("trail");
+  const trailBox = relRect(trailEl, rect);
+  const air = relRect($("air"), rect);
+  const quad = relRect($("quad"), rect);
+  sky = {
+    left: trailBox.left,
+    top: trailBox.top,
+    w: trailBox.width,
+    h: trailBox.height,
+    droneX: quad.left + quad.width / 2,
+    groundY: air.bottom,
+    travel: Math.max(36, air.height - quad.height),
+    decideTop: decide.top,
+  };
 
-  for (const cmd of CMD_TYPES) {
-    const ruleEl = document.querySelector(`#rules li[data-rule="${cmd}"]`);
+  const trailW = Math.round(sky.w * dpr);
+  const trailH = Math.round(sky.h * dpr);
 
-    if (ruleEl) {
-      nextLanes[`act-${cmd}`] = curve(
-        { x: decide.right, y: relRect(ruleEl, rect).midY },
-        { x: droneCard.left, y: arena.midY },
-      );
-    }
+  if (trailEl.width !== trailW || trailEl.height !== trailH) {
+    trailEl.width = trailW;
+    trailEl.height = trailH;
   }
 
+  trailCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  nextLanes.act = actLane();
   LANES = nextLanes;
 
   const waveMic = $("wave-mic");
@@ -228,12 +273,7 @@ const ui = {
   stageCamAttached: false,
   micNotice: { text: "", until: 0 },
   pipePendingUntil: 0,
-  cmdCounts: { land: 0, stop: 0, move: 0, wake: 0 },
-  cmdLast: {},
-  seenCmdKeys: new Set(),
 };
-
-let state = null;
 
 function payloadBytes(item) {
   return item ? (item.bytes ?? item.raw?.length ?? 0) : 0;
@@ -370,10 +410,10 @@ function guides(dt) {
   for (const [name, path] of Object.entries(LANES)) {
     const raw = name.startsWith("raw-");
     ctx.globalAlpha = 1;
-    ctx.lineWidth = raw ? 2 : 4;
-    ctx.setLineDash(raw ? [2, 9] : []);
-    ctx.strokeStyle = raw ? "rgba(87, 80, 73, 0.5)" : "rgba(87, 80, 73, 0.2)";
-    ctx.fillStyle = "rgba(87, 80, 73, 0.45)";
+    ctx.lineWidth = raw ? 3 : 4;
+    ctx.setLineDash(raw ? [2, 10] : []);
+    ctx.strokeStyle = raw ? "rgba(87, 80, 73, 0.75)" : "rgba(87, 80, 73, 0.42)";
+    ctx.fillStyle = "rgba(87, 80, 73, 0.7)";
     trace(path);
     ctx.setLineDash([]);
 
@@ -394,12 +434,122 @@ function guides(dt) {
   ctx.globalAlpha = 1;
 }
 
+const MONO = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || "monospace";
+
+/* What the room did, in order: one mark per real act, deduplicated so a
+   reflex that fires for ten seconds is one mark, not forty. */
+function trailMarks() {
+  const marks = [];
+  let lastKey = null;
+  let lastT = -Infinity;
+
+  for (const a of state.acts || []) {
+    if (a.act === "hold" || !TRAIL_LABEL[a.act]) continue;
+
+    if (a.act !== lastKey || a.seen_at - lastT > 6) marks.push({ key: a.act, t: a.seen_at });
+    lastKey = a.act;
+    lastT = a.seen_at;
+  }
+
+  return marks;
+}
+
+function altitudeAt(t) {
+  let best = null;
+
+  for (let i = trailPts.length - 1; i >= 0; i--) {
+    const d = Math.abs(trailPts[i].t - t);
+
+    if (!best || d < best.d) best = { d, alt: trailPts[i].alt };
+
+    if (trailPts[i].t < t) break;
+  }
+
+  return best && best.d < 1.5 ? best.alt : null;
+}
+
+/* The flight trail: time runs left to right and ends at the drone, so the
+   whole session reads as one line with the room's commands marked on it. */
+function drawTrail(now) {
+  const c = trailCtx;
+  c.clearRect(0, 0, sky.w, sky.h);
+
+  if (!state?.drone || trailPts.length < 2) return;
+  const tNow = state.t + (now - ui.stateAt) / 1000;
+  const x0 = sky.droneX - sky.left;
+  const pps = (x0 - TRAIL_LEFT) / TRAIL_S;
+  const xOf = (t) => x0 - (tNow - t) * pps;
+  const yOf = (alt) => skidY(alt) - sky.top;
+  const fade = c.createLinearGradient(TRAIL_LEFT, 0, x0, 0);
+  fade.addColorStop(0, "rgba(87, 80, 73, 0)");
+  fade.addColorStop(0.2, "rgba(87, 80, 73, 0.6)");
+  fade.addColorStop(1, "rgba(28, 25, 23, 0.9)");
+  c.strokeStyle = fade;
+  c.lineWidth = 4;
+  c.lineJoin = "round";
+  c.lineCap = "round";
+  c.beginPath();
+  let started = false;
+
+  for (const pt of trailPts) {
+    const x = xOf(pt.t);
+
+    if (x < TRAIL_LEFT) continue;
+
+    if (started) c.lineTo(x, yOf(pt.alt));
+    else c.moveTo(x, yOf(pt.alt));
+    started = true;
+  }
+
+  if (started) {
+    c.lineTo(x0, yOf(state.drone.altitude_m));
+    c.stroke();
+  }
+
+  c.font = `600 18px ${MONO}`;
+  c.textAlign = "center";
+
+  for (const m of trailMarks()) {
+    const x = xOf(m.t);
+    const alt = altitudeAt(m.t);
+
+    if (x < TRAIL_LEFT + 30 || alt === null) continue;
+    const y = yOf(alt);
+    const color = ACT_COLOR[m.key] ?? COLORS.ember;
+    const below = y < sky.h - 96;
+    c.globalAlpha = Math.min(1, (x - TRAIL_LEFT) / 160);
+    c.strokeStyle = color;
+    c.fillStyle = color;
+    c.lineWidth = 3;
+    c.beginPath();
+    c.moveTo(x, y);
+    c.lineTo(x, below ? y + 22 : y - 22);
+    c.stroke();
+    c.beginPath();
+    c.arc(x, y, 7, 0, Math.PI * 2);
+    c.fill();
+
+    // A label above the line would sit behind the drone while it is close.
+    if (below || x0 - x > 170) {
+      const ty = below ? y + 42 : y - 30;
+      c.strokeStyle = "#efeae0";
+      c.lineWidth = 6;
+      c.strokeText(TRAIL_LABEL[m.key], x, ty);
+      c.fillText(TRAIL_LABEL[m.key], x, ty);
+    }
+  }
+
+  c.globalAlpha = 1;
+}
+
 let last = performance.now();
 
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000) * SPEED;
   last = now;
   ctx.clearRect(0, 0, stageW, stageH);
+  LANES.act = actLane();
+  drawTrail(now);
   guides(dt);
   emitRaw(dt);
 
@@ -471,12 +621,6 @@ function age(item, now) {
   return state.t + (now - ui.stateAt) / 1000 - item.seen_at;
 }
 
-function ageText(seconds) {
-  if (!Number.isFinite(seconds)) return "";
-
-  return seconds < 10 ? `${seconds.toFixed(1)} s` : `${Math.round(seconds)} s`;
-}
-
 function label(sense, m) {
   if (!m) return null;
 
@@ -522,8 +666,6 @@ function renderMicSwitch(clapTele, wordTele, now) {
 
   if (ui.micNotice.until > now) return ui.micNotice.text;
 
-  if (live && raw && !isDji && !isMac) return raw.slice(0, 14);
-
   if (!live) return "";
 
   const bytesSeen = Math.max(clapTele?.captured_bytes ?? 0, wordTele?.captured_bytes ?? 0);
@@ -531,7 +673,7 @@ function renderMicSwitch(clapTele, wordTele, now) {
 
   if (bytesSeen > 120000 && micPeak === 0) return "mic muted / no access";
 
-  return isDji ? "dji live" : "mac live";
+  return "";
 }
 
 function renderSenses(now) {
@@ -568,7 +710,7 @@ function renderSenses(now) {
   $("src-hands").dataset.link = handsTele?.link ?? "ok";
   const camLocal = Math.max(handsTele?.windows ?? 0, (handsTele?.sent ?? 0) + (handsTele?.dropped ?? 0));
   $("raw-hands").textContent = String(camLocal);
-  $("cap-hands").textContent = handsTele?.link === "cut" ? "link cut" : "watching";
+  $("cap-hands").textContent = handsTele?.link === "cut" ? "link cut" : "";
 
   const mHands = state.latest.hands;
   const handsLive = Boolean(state.nodes["see-hands"].live && mHands);
@@ -606,54 +748,6 @@ function cmdKeyOf(item) {
   return CMD_TYPES.includes(item.act) ? item.act : null;
 }
 
-function trackCommands(snapshot) {
-  const acts = snapshot.acts || [];
-
-  if (!acts.length && !snapshot.nodes?.["fly-drone"]?.sent) {
-    ui.cmdCounts = { land: 0, stop: 0, move: 0, wake: 0 };
-    ui.cmdLast = {};
-    ui.seenCmdKeys.clear();
-
-    return;
-  }
-
-  for (const item of acts) {
-    const cmd = cmdKeyOf(item);
-
-    if (!cmd) continue;
-    const sig = `${cmd}:${item.act}:${item.t}:${item.because}`;
-
-    if (!ui.seenCmdKeys.has(sig)) {
-      ui.seenCmdKeys.add(sig);
-      ui.cmdCounts[cmd] = (ui.cmdCounts[cmd] ?? 0) + 1;
-    }
-
-    ui.cmdLast[cmd] = item;
-  }
-}
-
-function renderCommands(now) {
-  const act = state.act;
-
-  if (act && act.act !== "hold") ui.lastRealAct = act;
-  const recent = ui.lastRealAct && age(ui.lastRealAct, now) < ACT_STICKY_S ? ui.lastRealAct : null;
-  const activeCmd = recent ? cmdKeyOf(recent) : null;
-
-  for (const cmd of CMD_TYPES) {
-    const box = $(`cmd-${cmd}`);
-    const lastItem = ui.cmdLast[cmd];
-    const isActive = activeCmd === cmd;
-    box.dataset.active = String(isActive);
-
-    if (cmd === "move") box.dataset.dir = recent?.act === "down" ? "down" : "up";
-
-    const ago = lastItem ? ageText(age(lastItem, now)) : "";
-    $(`cs-${cmd}`).textContent = isActive
-      ? (cmd === "move" ? recent.act : "now")
-      : ago ? `${ago} ago` : "idle";
-  }
-}
-
 function render(now) {
   if (!state) return;
   const s = state;
@@ -669,36 +763,27 @@ function render(now) {
     el.dataset.live = liveState;
     el.dataset.state = liveState;
     $(`n-${node}`).textContent = n.sent;
-    $(`s-${node}`).textContent = cut ? "cut" : n.live ? "running" : "off";
 
     const m = s.latest[sense];
     const slot = document.querySelector(`.slot[data-slot="${sense}"]`);
     const a = age(m, now);
     const text = label(sense, m);
-    const lastEl = $(`l-${node}`);
-    lastEl.textContent = text ?? "nothing sent";
-    lastEl.classList.toggle("none", !text);
-    lastEl.classList.toggle("fresh", sense !== "hands" && a < FRESH_S);
+    const k = $(`m-${sense}`);
+    k.textContent = text ?? "nothing sent";
+    k.classList.toggle("none", !text);
+    slot.classList.toggle("fresh", sense !== "hands" && a < FRESH_S);
 
     if (sense === "hands") {
       const quorum = Boolean(m && n.live && m.seen >= 10);
-      lastEl.classList.toggle("majority", quorum && m.share > 0.5);
-      lastEl.classList.toggle("waiting", quorum && m.share >= 0.2 && m.share <= 0.5);
+      slot.classList.toggle("majority", quorum && m.share > 0.5);
+      slot.classList.toggle("waiting", quorum && m.share >= 0.2 && m.share <= 0.5);
     }
-
-    const k = $(`m-${sense}`);
-    k.textContent = text ?? EMPTY[sense];
-    k.classList.toggle("none", !text);
-    $(`a-${sense}`).textContent = m ? `${node} · ${bytes(payloadBytes(m))} · ${ageText(a)}` : node;
-    slot.classList.toggle("fresh", a < FRESH_S);
-    slot.classList.toggle("stale", Number.isFinite(a) && a >= FRESH_S);
   }
 
   const fly = s.nodes["fly-drone"];
   const flyEl = $("node-fly-drone");
   flyEl.dataset.live = fly.live ? "on" : "off";
   flyEl.dataset.state = fly.live ? "on" : "off";
-  $("n-fly-drone").textContent = fly.sent;
 
   const running = Object.values(s.nodes).filter((n) => n.live).length;
   const pipeEl = $("pipeline-status");
@@ -714,8 +799,6 @@ function render(now) {
   }
 
   renderDecide(now);
-  renderHistory(now);
-  renderCommands(now);
   renderDrone();
 
   const scene = s.scene || {};
@@ -736,15 +819,21 @@ function renderDecide(now) {
   const recent = ui.lastRealAct && age(ui.lastRealAct, now) < ACT_STICKY_S ? ui.lastRealAct : null;
   const shown = recent || act;
   const because = $("because");
+  const hold = shown?.act === "hold";
+  const waiting = hold && Boolean(shown?.waiting);
 
   if (!act) {
-    because.textContent = state.nodes["fly-drone"].live ? "ready" : "off";
+    $("why-label").textContent = "";
+    $("why").textContent = state.nodes["fly-drone"].live ? "ready" : "off";
   } else if (shown) {
-    because.textContent = shown.act === "hold" ? shown.because : `${shown.act}: ${shown.because}`;
+    $("why-label").textContent = hold ? "holding" : `${shown.act}, because`;
+    $("why").textContent = plainWhy(shown.because);
   }
 
+  because.classList.toggle("quiet", !act || (hold && !waiting));
   because.classList.toggle("land", shown?.act === "land");
-  because.classList.toggle("waiting", shown?.act === "hold" && Boolean(shown?.waiting));
+  because.classList.toggle("waiting", waiting);
+  because.classList.toggle("fresh", Boolean(recent));
 
   const becauseText = recent?.because ?? "";
   const lostWord = recent?.act === "land" && /> word (up|down)/.test(becauseText);
@@ -763,55 +852,14 @@ function renderDecide(now) {
     if (tag) tag.textContent = won ? "wins" : lost ? "lost" : pending ? "not yet" : "";
   }
 
-  const slotK = $("m-act");
-
-  if (!shown) {
-    slotK.textContent = "no act";
-    slotK.classList.add("none");
-    $("a-act").textContent = "fly-drone";
-  } else {
-    slotK.textContent = shown.act === "hold" ? `hold · ${shown.because}` : `${shown.act} · ${shown.because}`;
-    slotK.classList.remove("none");
-    $("a-act").textContent = `fly-drone · ${bytes(payloadBytes(shown))} · ${ageText(age(shown, now))}`;
-  }
-
-  document.querySelector('.slot[data-slot="act"]').classList.toggle("fresh", Boolean(recent));
 }
 
-function renderHistory(now) {
-  const real = (state.acts || [])
-    .filter((a) => a.act !== "hold")
-    .filter((a, i, all) => i === 0 || a.act !== all[i - 1].act || a.because !== all[i - 1].because)
-    .slice(-3)
-    .reverse();
-
-  const list = $("history");
-  const key = real.map((a) => a.seen_at).join(",");
-
-  if (list.dataset.key === key) {
-    real.forEach((a, i) => {
-      const s = list.children[i]?.lastChild;
-
-      if (s) s.textContent = ageText(age(a, now));
-    });
-
-    return;
-  }
-
-  list.dataset.key = key;
-  list.replaceChildren(...real.map((a) => {
-    const li = document.createElement("li");
-    const left = document.createElement("span");
-    const b = document.createElement("b");
-    b.className = a.act;
-    b.textContent = a.act;
-    left.append(b, ` · ${a.because}`);
-    const right = document.createElement("span");
-    right.textContent = ageText(age(a, now));
-    li.append(left, right);
-
-    return li;
-  }));
+/* The rule table writes "hands 0.83 > word up". The room reads
+   "hands 83% beats word up". */
+function plainWhy(text) {
+  return String(text ?? "")
+    .replace(/hands (\d(?:\.\d+)?)/, (_, share) => `hands ${Math.round(Number(share) * 100)}%`)
+    .replace(" > ", " beats ");
 }
 
 function renderDrone() {
@@ -828,16 +876,14 @@ function renderDrone() {
   bat.textContent = hasBat ? `battery ${d.battery}%` : "battery --";
   bat.dataset.level = !hasBat || d.battery >= 30 ? "ok" : d.battery >= 20 ? "warn" : "crit";
 
-  const airH = $("air")?.clientHeight || 160;
-  const quadH = $("quad")?.clientHeight || 82;
-  const h = Math.max(36, airH - quadH);
-  const ratio = Math.max(0, Math.min(1, d.altitude_m / 2.0));
+  const h = sky.travel;
+  const ratio = clamp01(d.altitude_m / 2.0);
   $("quad").style.bottom = `${ratio * h}px`;
   $("shadow").style.transform = `scale(${1 - ratio * 0.45})`;
   $("shadow").style.opacity = String(0.9 - ratio * 0.6);
 
   const target = $("target");
-  target.style.bottom = `${Math.max(0, Math.min(1, d.target_m / 2.0)) * h}px`;
+  target.style.bottom = `${clamp01(d.target_m / 2.0) * h}px`;
   target.style.borderTopColor = d.phase === "descending" ? COLORS.warn : COLORS.up;
   target.style.opacity = d.target_m > 0 && d.phase !== "parked" ? "0.9" : "0";
 
@@ -866,10 +912,9 @@ function renderDrone() {
   const camImg = $("cam-img");
   const camLabel = $("cam-label");
   const camOn = Boolean(state.stage_cam);
-  const camTag = state.stage_cam_name ? String(state.stage_cam_name).replace(/\s*StreamCamera$/i, "") : "";
   camBox.dataset.active = String(camOn);
   camImg.hidden = !camOn;
-  camLabel.textContent = camOn ? (camTag || "camera live") : "camera · offline";
+  camLabel.textContent = camOn ? "" : "camera off";
 
   if (camOn && !ui.stageCamAttached) {
     camImg.src = "/api/stage-cam.mjpg";
@@ -1007,8 +1052,6 @@ function apply(snapshot) {
     }
   }
 
-  trackCommands(snapshot);
-
   const pulses = snapshot.pulses || [];
   const top = pulses.length ? pulses[pulses.length - 1].id : 0;
 
@@ -1042,7 +1085,7 @@ function apply(snapshot) {
         const cmd = cmdKeyOf(actItem);
 
         if (cmd) {
-          spawn(`act-${cmd}`, {
+          spawn("act", {
             speed: 1.0,
             color: ACT_COLOR[actItem?.act] ?? COLORS.ember,
             size: 9,
@@ -1055,6 +1098,16 @@ function apply(snapshot) {
     }
 
     ui.lastPulse = top;
+  }
+
+  if (snapshot.drone) {
+    const lastPt = trailPts[trailPts.length - 1];
+
+    // A clock that runs backwards is a new session: start a new trail.
+    if (lastPt && snapshot.t < lastPt.t) trailPts.length = 0;
+    trailPts.push({ t: snapshot.t, alt: snapshot.drone.altitude_m ?? 0 });
+
+    while (trailPts.length && trailPts[0].t < snapshot.t - TRAIL_S - 5) trailPts.shift();
   }
 
   state = snapshot;

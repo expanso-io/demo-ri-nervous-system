@@ -89,8 +89,7 @@ in the rule table, and the reason reads `hands <share> > word up` (for example
 ## Beat 6: Reveal · 3:50-4:30
 
 **Screen state before you speak.** Three message cards show the last clap,
-the last word, and the last hand count with byte sizes matching the shelf
-below. Under them, two bars on one scale: what stayed on the devices (MB,
+the last word, and the last hand count, each with its byte size. Under them, two bars on one scale: what stayed on the devices (MB,
 a full bar) and what left them (KB, a sliver).
 
 > Here is everything that travelled between these devices during that run. No

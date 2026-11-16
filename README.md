@@ -49,7 +49,7 @@ Presenter controls on the screen:
   (matching header buttons `land [Esc]` and `cut [Shift+Esc]`).
 - **clicker** button arms/disarms presentation clicker keys (`ArrowLeft`,
   `ArrowRight`, `PageUp`, `PageDown`) for beat navigation.
-- Clicking **MAC | DJI** on the `mic` card switches live between MacBook and DJI
+- Hovering the `mic` card shows **LAPTOP | HANDHELD**; clicking it switches live between MacBook and DJI
   microphones (or start directly with `just up-live sim "OBSBOT Tiny 2 Lite" mac`
   / `just up-live`).
 - Clicking **UP / DOWN / STOP** pills on `mic` triggers a cue for
