@@ -35,31 +35,31 @@ telemetry and inspected messages, keeping text minimal.
 ## Stage layout
 
 The board is drawn at 1920 x 1080 and scaled as a whole to whatever screen it
-is on, so every projector shows the same picture. Top to bottom:
+is on, so every projector shows the same picture. There is no title bar and
+no prompt line: the presenter says what to do, and the screen shows only what
+the room is working on. Two tiers:
 
-1. A slim operator bar: Expanso Cloud status and the safety buttons.
-2. The prompt line, the largest thing on the screen, because it is the only
-   thing the room has to do.
-3. The show, across the top: a wide flight arena where the drone draws its
-   own altitude trail, with one mark on the trail for each thing the room did
+1. The show, across the top: a wide flight arena. The drone starts at the left
+   and moves right only while it is flying, so the trace behind it is the whole
+   session: every climb and landing, with one mark for each thing the room did
    (`clap`, `up`, `down`, `stop`, `hands up`). Beside it, the phase as one
    large word, the altitude, and the one reason for the last act in plain
-   words (`hands 83% beats word up`).
-4. The nervous system, underneath, read left to right and then up: `sense`,
+   words (`hands 83% beats word up`). Asleep, it reads `clap to wake it`.
+2. The nervous system, underneath, read left to right and then up: `sense`,
    `model`, `decide`. Rows are in priority order on both sides (camera and
    `see-hands` on top, clap at the bottom), so no lane crosses another and
-   "the highest rule that fires wins" is literally the highest row. One nerve
-   runs from the rule table up to the drone, wherever it is flying.
+   the highest rule is literally the highest row. One nerve runs from the rule
+   table up to the drone, wherever it is.
+
+Only the channel in use is at full strength. The beat names it, and any
+channel that has just sent something joins it; the rest dim.
 
 Nothing the room is meant to read is smaller than 18px. Operator controls
-(safety buttons, the microphone source switch) stay hidden until the pointer
-is on them; `Esc` still lands the drone. No device or model vendor names
-appear on the board.
-
-Why two tiers and not four columns: four equal columns gave the model boxes
-as much screen as the drone and read as an architecture diagram. Shrunk to a
-back-row view, the two-tier board keeps the phase, the reason and the rule
-table legible where the column board lost them.
+(pipeline status, battery when low, safety buttons, the microphone switch)
+stay hidden until the pointer is on the top right corner or the `mic` card;
+`Esc` still lands the drone. No device or model vendor names appear on the
+board. `just up` starts the four pipelines, so the rig opens ready to fly;
+a recorded take resets to the zero state and starts them on camera.
 
 ## Scenario cast
 

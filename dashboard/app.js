@@ -118,18 +118,22 @@ let stageH = 680;
 let LANES = {};
 
 /* Where the flight arena sits on the stage, in board pixels. */
-let sky = { left: 0, top: 0, w: 1, h: 1, droneX: 0, groundY: 0, travel: 1, decideTop: 0 };
+let sky = { left: 0, top: 0, w: 1, h: 1, airLeft: 0, airW: 1, quadW: 1, groundY: 0, travel: 1, decideTop: 0, decideX: 0 };
 
 const trailCtx = $("trail").getContext("2d");
 
-/* Trail samples: the drone's altitude over the last minute and a half. */
-const trailPts = [];
+/* The flight so far. The drone starts at the left of the arena and moves
+   right only while it is flying, so the trace behind it is the whole session:
+   every climb, every landing, and what the room did to cause each one. */
+const flight = { tau: 0, lastT: null, phase: null, pts: [], marks: [], markKey: null, markT: -Infinity };
 
-const TRAIL_S = 80;
+const FLIGHT_SPAN_S = 200;
 
-const TRAIL_LEFT = 76;
+const CRAFT_START = 64;
 
 const TRAIL_LABEL = { wake: "clap", up: "up", down: "down", stop: "stop", land: "hands up" };
+
+const AIRBORNE = ["taking_off", "hovering", "climbing", "descending", "landing"];
 
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
@@ -139,12 +143,32 @@ function skidY(altitude) {
   return sky.groundY - clamp01(altitude / 2.0) * sky.travel;
 }
 
-/* The one nerve to the drone: from the rule table up to its skids, wherever
-   it is flying. */
-function actLane() {
-  const y = skidY(state?.drone?.altitude_m ?? 0);
+function flightSpan() {
+  return Math.max(1, sky.airW - sky.quadW - 20 - CRAFT_START);
+}
 
-  return polyline([{ x: sky.droneX, y: sky.decideTop }, { x: sky.droneX, y: y + 4 }]);
+/* Left edge of the drone inside the arena for a moment of flight time. Once
+   the drone reaches the right edge it stays there and the trace scrolls. */
+function craftLeft(tau) {
+  const span = flightSpan();
+  const px = (tau * span) / FLIGHT_SPAN_S;
+  const scroll = Math.max(0, (flight.tau * span) / FLIGHT_SPAN_S - span);
+
+  return CRAFT_START + px - scroll;
+}
+
+function craftX(tau) {
+  return sky.airLeft + craftLeft(tau) + sky.quadW / 2;
+}
+
+/* The one nerve to the drone: out of the top of the rule table, along the
+   gap between the tiers, and up to the skids wherever the drone is. */
+function actLane() {
+  const x = craftX(flight.tau);
+  const gapY = sky.top + sky.h + 12;
+  const y = skidY(state?.drone?.altitude_m ?? 0) + 4;
+
+  return polyline([{ x: sky.decideX, y: sky.decideTop }, { x: sky.decideX, y: gapY }, { x, y: gapY }, { x, y }]);
 }
 
 const BOARD_W = 1920;
@@ -223,10 +247,13 @@ function syncLayout() {
     top: trailBox.top,
     w: trailBox.width,
     h: trailBox.height,
-    droneX: quad.left + quad.width / 2,
+    airLeft: air.left,
+    airW: air.width,
+    quadW: quad.width,
     groundY: air.bottom,
     travel: Math.max(36, air.height - quad.height),
     decideTop: decide.top,
+    decideX: decide.left + 90,
   };
 
   const trailW = Math.round(sky.w * dpr);
@@ -436,112 +463,102 @@ function guides(dt) {
 
 const MONO = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || "monospace";
 
-/* What the room did, in order: one mark per real act, deduplicated so a
-   reflex that fires for ten seconds is one mark, not forty. Marks are kept
-   here because the stream only carries the most recent acts. */
-const trailMarks = [];
+/* One mark per real act, deduplicated so a reflex that fires for ten seconds
+   is one mark, not forty. */
+function noteFlight(snapshot) {
+  const d = snapshot.drone;
 
-const markSeen = { key: null, t: -Infinity };
+  if (!d) return;
+  const reset = (flight.lastT !== null && snapshot.t < flight.lastT) || (d.phase === "dark" && flight.phase && flight.phase !== "dark");
 
-function noteMarks(snapshot) {
+  if (reset) {
+    flight.tau = 0;
+    flight.pts.length = 0;
+    flight.marks.length = 0;
+    flight.markKey = null;
+    flight.markT = -Infinity;
+  }
+
+  const dt = flight.lastT === null || reset ? 0 : Math.min(1, snapshot.t - flight.lastT);
+
+  if (AIRBORNE.includes(d.phase)) flight.tau += dt;
+  flight.lastT = snapshot.t;
+  flight.phase = d.phase;
+  const alt = d.altitude_m ?? 0;
+  const lastPt = flight.pts[flight.pts.length - 1];
+
+  if (!lastPt || lastPt.tau !== flight.tau || lastPt.alt !== alt) flight.pts.push({ tau: flight.tau, alt });
+
   for (const a of snapshot.acts || []) {
-    if (a.seen_at <= markSeen.t || a.act === "hold" || !TRAIL_LABEL[a.act]) continue;
+    if (a.seen_at <= flight.markT || a.act === "hold" || !TRAIL_LABEL[a.act]) continue;
 
-    if (a.act !== markSeen.key || a.seen_at - markSeen.t > 6) trailMarks.push({ key: a.act, t: a.seen_at });
-    markSeen.key = a.act;
-    markSeen.t = a.seen_at;
+    if (a.act !== flight.markKey || a.seen_at - flight.markT > 6) flight.marks.push({ key: a.act, tau: flight.tau, alt });
+    flight.markKey = a.act;
+    flight.markT = a.seen_at;
   }
-
-  while (trailMarks.length && trailMarks[0].t < snapshot.t - TRAIL_S - 5) trailMarks.shift();
 }
 
-function altitudeAt(t) {
-  let best = null;
-
-  for (let i = trailPts.length - 1; i >= 0; i--) {
-    const d = Math.abs(trailPts[i].t - t);
-
-    if (!best || d < best.d) best = { d, alt: trailPts[i].alt };
-
-    if (trailPts[i].t < t) break;
-  }
-
-  return best && best.d < 1.5 ? best.alt : null;
-}
-
-/* The flight trail: time runs left to right and ends at the drone, so the
-   whole session reads as one line with the room's commands marked on it. */
-function drawTrail(now) {
+/* The trace: the session as one line that ends at the drone, with what the
+   room did marked on it. */
+function drawTrail() {
   const c = trailCtx;
   c.clearRect(0, 0, sky.w, sky.h);
 
-  if (!state?.drone || trailPts.length < 2) return;
-  const tNow = state.t + (now - ui.stateAt) / 1000;
-  const x0 = sky.droneX - sky.left;
-  const pps = (x0 - TRAIL_LEFT) / TRAIL_S;
-  const xOf = (t) => x0 - (tNow - t) * pps;
+  if (flight.pts.length < 2) return;
+  // The trace joins the drone at its left skid, so the drone never covers it.
+  const xOf = (tau) => sky.airLeft + craftLeft(tau) + sky.quadW * 0.34 - sky.left;
   const yOf = (alt) => skidY(alt) - sky.top;
-  const fade = c.createLinearGradient(TRAIL_LEFT, 0, x0, 0);
-  fade.addColorStop(0, "rgba(87, 80, 73, 0)");
-  fade.addColorStop(0.2, "rgba(87, 80, 73, 0.6)");
-  fade.addColorStop(1, "rgba(28, 25, 23, 0.9)");
-  c.strokeStyle = fade;
-  c.lineWidth = 4;
+  const minX = CRAFT_START;
+  c.strokeStyle = "rgba(28, 25, 23, 0.85)";
+  c.lineWidth = 5;
   c.lineJoin = "round";
   c.lineCap = "round";
   c.beginPath();
   let started = false;
 
-  for (const pt of trailPts) {
-    const x = xOf(pt.t);
+  for (const pt of flight.pts) {
+    const x = xOf(pt.tau);
 
-    if (x < TRAIL_LEFT) continue;
+    if (x < minX) continue;
 
     if (started) c.lineTo(x, yOf(pt.alt));
     else c.moveTo(x, yOf(pt.alt));
     started = true;
   }
 
-  if (started) {
-    c.lineTo(x0, yOf(state.drone.altitude_m));
-    c.stroke();
-  }
-
-  c.font = `600 18px ${MONO}`;
+  if (started) c.stroke();
+  const x0 = xOf(flight.tau);
+  c.font = `600 24px ${MONO}`;
   c.textAlign = "center";
 
-  for (const m of trailMarks) {
-    const x = xOf(m.t);
-    const alt = altitudeAt(m.t);
+  for (const m of flight.marks) {
+    const x = xOf(m.tau);
 
-    if (x < TRAIL_LEFT + 30 || alt === null) continue;
-    const y = yOf(alt);
+    if (x < minX) continue;
+    const y = yOf(m.alt);
     const color = ACT_COLOR[m.key] ?? COLORS.ember;
-    const below = y < sky.h - 96;
-    c.globalAlpha = Math.min(1, (x - TRAIL_LEFT) / 160);
+    const below = y < sky.h - 110;
     c.strokeStyle = color;
     c.fillStyle = color;
     c.lineWidth = 3;
     c.beginPath();
     c.moveTo(x, y);
-    c.lineTo(x, below ? y + 22 : y - 22);
+    c.lineTo(x, below ? y + 26 : y - 26);
     c.stroke();
     c.beginPath();
-    c.arc(x, y, 7, 0, Math.PI * 2);
+    c.arc(x, y, 8, 0, Math.PI * 2);
     c.fill();
 
     // A label this close would sit behind the drone; the caption beside the
     // arena says what is happening now.
-    if (x0 - x > 170) {
-      const ty = below ? y + 42 : y - 30;
+    if (x0 - x > 60) {
+      const ty = below ? y + 50 : y - 36;
       c.strokeStyle = "#efeae0";
-      c.lineWidth = 6;
+      c.lineWidth = 7;
       c.strokeText(TRAIL_LABEL[m.key], x, ty);
       c.fillText(TRAIL_LABEL[m.key], x, ty);
     }
   }
-
-  c.globalAlpha = 1;
 }
 
 let last = performance.now();
@@ -551,7 +568,7 @@ function frame(now) {
   last = now;
   ctx.clearRect(0, 0, stageW, stageH);
   LANES.act = actLane();
-  drawTrail(now);
+  drawTrail();
   guides(dt);
   emitRaw(dt);
 
@@ -634,7 +651,7 @@ function label(sense, m) {
 }
 
 const PHASE = {
-  dark: "dark",
+  dark: "asleep",
   taking_off: "taking off",
   hovering: "hovering",
   climbing: "climbing",
@@ -667,13 +684,6 @@ function renderMicSwitch(clapTele, wordTele, now) {
   djiBtn.setAttribute("aria-pressed", String(isDji));
 
   if (ui.micNotice.until > now) return ui.micNotice.text;
-
-  if (!live) return "";
-
-  const bytesSeen = Math.max(clapTele?.captured_bytes ?? 0, wordTele?.captured_bytes ?? 0);
-  const micPeak = Math.max(clapTele?.level ?? 0, wordTele?.level ?? 0, ...(clapTele?.wave || [0]), ...(wordTele?.wave || [0]));
-
-  if (bytesSeen > 120000 && micPeak === 0) return "mic muted / no access";
 
   return "";
 }
@@ -802,6 +812,7 @@ function render(now) {
 
   renderDecide(now);
   renderDrone();
+  renderFocus(now);
 
   const scene = s.scene || {};
 
@@ -810,6 +821,28 @@ function render(now) {
   const promptText = scene.prompt || BEAT_TITLE[scene.beat] || "";
 
   if (promptText !== ui.lastScenePrompt) swapPrompt(promptText);
+}
+
+/* Which channels the room is working on. The beat names the channel; any
+   channel that has just sent something joins it, so a clap in the middle of
+   the hands beat still shows. With nothing going on, nothing is dimmed. */
+const BEAT_FOCUS = { clap: ["clap"], shout: ["word"], hands: ["hands"], conflict: ["hands", "word"] };
+
+function renderFocus(now) {
+  const focus = new Set(BEAT_FOCUS[state.scene?.beat] ?? []);
+
+  for (const sense of Object.keys(NODE_OF)) {
+    const m = state.latest[sense];
+    const live = state.nodes[NODE_OF[sense]].live;
+    const busy = sense === "hands" ? Boolean(m && m.seen >= 10 && m.share >= 0.2) : age(m, now) < ACT_STICKY_S;
+
+    if (live && busy) focus.add(sense);
+  }
+
+  for (const el of document.querySelectorAll("[data-ch]")) {
+    const mine = el.dataset.ch.split(" ");
+    el.classList.toggle("dim", focus.size > 0 && !mine.some((ch) => focus.has(ch)));
+  }
 }
 
 function renderDecide(now) {
@@ -824,15 +857,18 @@ function renderDecide(now) {
   const hold = shown?.act === "hold";
   const waiting = hold && Boolean(shown?.waiting);
 
-  if (!act) {
+  const asleep = state.drone?.phase === "dark";
+  const idleHold = hold && !waiting;
+
+  if (!act || idleHold) {
     $("why-label").textContent = "";
-    $("why").textContent = state.nodes["fly-drone"].live ? "ready" : "off";
-  } else if (shown) {
+    $("why").textContent = asleep && state.nodes["fly-drone"].live ? "clap to wake it" : "";
+  } else {
     $("why-label").textContent = hold ? "holding" : `${shown.act}, because`;
     $("why").textContent = plainWhy(shown.because);
   }
 
-  because.classList.toggle("quiet", !act || (hold && !waiting));
+  because.classList.toggle("quiet", !act || idleHold);
   because.classList.toggle("land", shown?.act === "land");
   because.classList.toggle("waiting", waiting);
   because.classList.toggle("fresh", Boolean(recent));
@@ -871,8 +907,6 @@ function renderDrone() {
   const card = $("drone");
   card.dataset.phase = d.phase;
   card.dataset.airborne = String(["taking_off", "hovering", "climbing", "descending", "landing"].includes(d.phase));
-  $("adapter-tag").textContent = d.adapter || "airframe";
-
   const bat = $("bat");
   const hasBat = Number.isFinite(d.battery);
   bat.textContent = hasBat ? `battery ${d.battery}%` : "battery --";
@@ -880,6 +914,10 @@ function renderDrone() {
 
   const h = sky.travel;
   const ratio = clamp01(d.altitude_m / 2.0);
+  const left = `${craftLeft(flight.tau)}px`;
+  $("quad").style.left = left;
+  $("shadow").style.left = left;
+  $("target").style.left = left;
   $("quad").style.bottom = `${ratio * h}px`;
   $("shadow").style.transform = `scale(${1 - ratio * 0.45})`;
   $("shadow").style.opacity = String(0.9 - ratio * 0.6);
@@ -908,7 +946,7 @@ function renderDrone() {
   }[d.phase] ?? COLORS.ink;
   // The target altitude is the dashed line in the arena, so the readout is
   // only where the drone is now.
-  $("alt").textContent = d.phase === "dark" ? "on table" : `${d.altitude_m.toFixed(1)} m`;
+  $("alt").textContent = d.phase === "dark" ? "" : `${d.altitude_m.toFixed(1)} m`;
 
   const camBox = $("stage-cam");
   const camImg = $("cam-img");
@@ -1102,22 +1140,7 @@ function apply(snapshot) {
     ui.lastPulse = top;
   }
 
-  if (snapshot.drone) {
-    const lastPt = trailPts[trailPts.length - 1];
-
-    // A clock that runs backwards is a new session: start a new trail.
-    if (lastPt && snapshot.t < lastPt.t) {
-      trailPts.length = 0;
-      trailMarks.length = 0;
-      markSeen.key = null;
-      markSeen.t = -Infinity;
-    }
-
-    trailPts.push({ t: snapshot.t, alt: snapshot.drone.altitude_m ?? 0 });
-
-    while (trailPts.length && trailPts[0].t < snapshot.t - TRAIL_S - 5) trailPts.shift();
-    noteMarks(snapshot);
-  }
+  noteFlight(snapshot);
 
   state = snapshot;
   ui.stateAt = now;

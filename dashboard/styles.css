@@ -58,7 +58,7 @@ body {
   transform-origin: 0 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .skip-link { position: absolute; left: -9999px; }
@@ -69,41 +69,21 @@ body {
 
 /* ---------------------------------------------------------------- masthead */
 
+.sr-only { position: absolute; left: -9999px; }
+
+/* Operator controls float over the top right corner and stay out of the
+   room's view until the pointer is on them; Esc still lands the drone. */
 .mast {
-  grid-row: 1;
-  grid-column: 1;
-  padding: 8px 32px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-width: 0;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 30;
+  padding: 2px 32px;
 }
-
-.mast-left {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-  flex: 1;
-}
-
-.mast h1 {
-  font: 600 13px/1 var(--mono);
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  white-space: nowrap;
-  flex: none;
-  margin-right: 18px;
-}
-
-.cloud-tag { font-size: 18px; font-weight: 600; white-space: nowrap; }
 
 .pipe-pill {
-  font: 600 18px/1 var(--mono);
-  padding: 5px 12px;
+  font: 600 13px/1 var(--mono);
+  padding: 7px 10px;
   border-radius: 4px;
   border: 1px solid var(--line);
   background: var(--surface);
@@ -122,7 +102,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: none;
+  padding: 6px 0;
 }
 
 .alert-tag {
@@ -149,25 +129,14 @@ body {
 
 /* Safety and cue controls are for the operator. They stay out of the
    room's view until the pointer is on them; Esc still lands the drone. */
-.mast-controls .ctrl { opacity: 0; transition: opacity .2s; }
-.mast-controls:hover .ctrl, .mast-controls .ctrl:focus-visible, .mast-controls .start-btn:not(.on) { opacity: 1; }
+.mast-controls > * { opacity: 0; transition: opacity .2s; }
+.mast-controls:hover > *, .mast-controls .ctrl:focus-visible, .mast-controls .start-btn:not(.on), .mast-controls .alert-tag, .mast-controls .bat:not([data-level="ok"]) { opacity: 1; }
 
 .ctrl[aria-pressed="true"] { color: var(--up); border-color: var(--up); }
 .ctrl.kill { color: var(--err); border-color: rgba(201, 42, 53, .45); }
 .ctrl.cut { color: var(--warn); border-color: rgba(180, 105, 14, .45); }
 .ctrl.start-btn { color: var(--ok); border-color: rgba(13, 122, 95, .45); }
 .ctrl.start-btn.on { color: var(--text-dim); border-color: var(--line); }
-
-/* ------------------------------------------------------------- prompt band */
-
-/* The one line the room is asked to act on. It is the largest thing on the
-   screen because it is the only thing the audience has to do. */
-.band {
-  grid-row: 2;
-  grid-column: 1;
-  padding: 14px 32px 2px;
-  min-width: 0;
-}
 
 .prompt {
   font: 600 64px/1.1 var(--serif);
@@ -176,10 +145,8 @@ body {
   width: max-content;
   white-space: nowrap;
   transform-origin: left center;
-  transition: opacity .25s;
+  flex: none;
 }
-
-.prompt.swap { opacity: 0; }
 
 /* ------------------------------------------------------------------- stage */
 
@@ -187,16 +154,16 @@ body {
    doing. The bottom is the nervous system, flowing left to right and then
    up into the drone. Rows are in priority order, so the highest wins. */
 .stage {
-  grid-row: 3;
+  grid-row: 1;
   grid-column: 1;
   position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
-  padding: 6px 32px 22px;
+  padding: 24px 32px 24px;
   display: grid;
   grid-template-columns: 560px 400px minmax(0, 1fr);
-  grid-template-rows: 424px minmax(0, 1fr);
+  grid-template-rows: 500px minmax(0, 1fr);
   column-gap: 100px;
   row-gap: 18px;
 }
@@ -229,7 +196,6 @@ body {
   flex: none;
 }
 
-.col-decide .col-label { text-align: right; }
 
 .col-label b {
   font-weight: 600;
@@ -249,8 +215,8 @@ body {
 /* ------------------------------------------------------------ act & drone */
 
 .show {
-  --quad-w: 260px;
-  --quad-h: 95px;
+  --quad-w: 280px;
+  --quad-h: 102px;
   grid-row: 1;
   grid-column: 1 / -1;
   position: relative;
@@ -300,8 +266,8 @@ body {
 
 .target {
   position: absolute;
-  right: 0;
-  width: calc(var(--quad-w) + 60px);
+  left: 0;
+  width: var(--quad-w);
   bottom: 0;
   height: 0;
   border-top: 3px dashed var(--up);
@@ -311,9 +277,9 @@ body {
 
 .shadow {
   position: absolute;
-  right: 60px;
+  left: 0;
   bottom: -9px;
-  width: 200px;
+  width: var(--quad-w);
   height: 12px;
   border-radius: 9999px;
   background: rgba(28, 25, 23, .16);
@@ -322,7 +288,7 @@ body {
 
 .quad {
   position: absolute;
-  right: 30px;
+  left: 0;
   bottom: 0;
   width: var(--quad-w);
   height: var(--quad-h);
@@ -374,22 +340,13 @@ body {
 .because.land .why { color: var(--err); }
 .because.waiting .why { color: var(--warn); }
 
-.now-foot { margin-top: auto; display: flex; align-items: center; gap: 14px; }
-
-.adapter-tag {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-dim);
-  background: var(--surface-2);
-  padding: 2px 8px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-}
-
-.bat { font-size: 18px; font-weight: 600; color: var(--ok); white-space: nowrap; }
+.bat { font-size: 13px; font-weight: 600; color: var(--ok); white-space: nowrap; }
 .bat[data-level="warn"] { color: var(--warn); }
 .bat[data-level="crit"] { color: var(--err); }
+
+/* Only what the room is working on right now is at full strength. */
+.sense, .rules li { transition: opacity .35s, border-color .25s, background-color .25s; }
+.dim { opacity: .32; }
 
 /* ------------------------------------------------------------------ senses */
 
@@ -601,7 +558,7 @@ body {
   transition: color .4s;
 }
 
-.node-last .k.none { font-size: 18px; font-weight: 400; }
+.node-last .k.none { visibility: hidden; }
 .node-last.fresh .k { color: var(--accent); }
 .node-last.waiting .k { color: var(--warn); }
 .node-last.majority .k { color: var(--err); }
@@ -666,7 +623,7 @@ body {
 .reveal {
   position: absolute;
   inset: 0;
-  padding: 10px 32px 14px;
+  padding: 24px 32px 14px;
   background: #f4f1ea;
   opacity: 0;
   pointer-events: none;
@@ -720,7 +677,7 @@ body[data-beat="reveal"] .reveal { opacity: 1; pointer-events: auto; }
 /* ----------------------------------------------------------------- handoff */
 
 .handoff {
-  grid-row: 2 / 4;
+  grid-row: 1;
   grid-column: 1;
   padding: 0 120px;
   background: #f4f1ea;

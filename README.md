@@ -14,7 +14,7 @@ Expanso Cloud deploys all four and shows they are running. The design is in
 just workspace-init   # once: enrol four Edge nodes (identities stay in ./.expanso-edge)
 just cameras          # list connected microphone and camera names/indices
 just preflight        # verify CoDrone EDU + OBSBOT Tiny 2 Lite + live DJI/Mac audio
-just up               # full live rig: CoDrone EDU + OBSBOT Tiny 2 Lite + live DJI/Mac mic
+just up               # full live rig, pipelines started: CoDrone EDU + OBSBOT Tiny 2 Lite + live DJI/Mac mic
 just start            # start all 4 Cloud jobs (`4/4 running`) for live flight
 just stop-jobs        # stop all 4 Cloud jobs back to `0/4`
 just run              # drive the five-minute arc against a fixture rig

@@ -10,23 +10,17 @@
 <a class="skip-link" href="#stage">Skip to the board</a>
 
 <header class="mast">
-  <div class="mast-left">
-    <h1>The drone with a nervous system</h1>
-    <span class="cloud-tag">Expanso Cloud</span>
-    <span class="pipe-pill" id="pipeline-status" data-review-pipeline="off">off</span>
-    <span class="alert-tag" id="link-alert" hidden>link notice</span>
-  </div>
+  <h1 class="sr-only">The drone with a nervous system</h1>
   <div class="mast-controls" aria-label="safety and cue controls">
+    <span class="alert-tag" id="link-alert" hidden>link notice</span>
+    <span class="pipe-pill ctrl-like" id="pipeline-status" data-review-pipeline="off">off</span>
+    <span class="bat" id="bat" data-level="ok">battery --</span>
     <button type="button" class="ctrl start-btn" id="btn-pipelines" title="Start or pause all four Expanso pipelines">start pipelines</button>
     <button type="button" class="ctrl" id="btn-clicker" aria-pressed="false" title="Toggle PageUp/PageDown clicker cues">clicker: off</button>
     <button type="button" class="ctrl kill" id="btn-kill" title="Emergency land (Escape)">land [Esc]</button>
     <button type="button" class="ctrl cut" id="btn-cut" title="Cut motors (Shift+Escape)">cut [Shift+Esc]</button>
   </div>
 </header>
-
-<div class="band">
-  <p class="prompt" id="prompt" aria-live="polite"></p>
-</div>
 
 <main class="stage" id="stage">
   <canvas id="flow" aria-hidden="true"></canvas>
@@ -66,17 +60,13 @@
         <span class="why-label" id="why-label"></span>
         <span class="why" id="why">off</span>
       </button>
-      <div class="now-foot">
-        <span class="adapter-tag" id="adapter-tag">sim</span>
-        <span class="bat" id="bat" data-level="ok">battery --</span>
-      </div>
     </div>
   </section>
 
   <div class="col col-senses">
-    <div class="col-label"><b>sense</b> sound and pictures stay here</div>
+    <div class="col-label"><b>sense</b></div>
 
-    <section class="sense cam-card" id="src-hands" data-sense="hands">
+    <section class="sense cam-card" data-ch="hands" id="src-hands" data-sense="hands">
       <div class="sense-main">
         <div class="stage-cam" id="stage-cam" data-active="false">
           <img id="cam-img" alt="live camera view with hand bounding boxes" hidden>
@@ -97,7 +87,7 @@
       </div>
     </section>
 
-    <section class="sense mic-card" id="src-word" data-sense="word">
+    <section class="sense mic-card" data-ch="word clap" id="src-word" data-sense="word">
       <div class="sense-main">
         <div class="sense-title">
           <svg class="device" viewBox="0 0 48 48" aria-hidden="true"><circle cx="30" cy="13" r="8"/><path d="M24.5 18.5l-12 18a3 3 0 0 0 4.2 4.2l18-12"/><path d="M25 8l10 10"/></svg>
@@ -121,12 +111,11 @@
   </div>
 
   <div class="col col-nodes">
-    <div class="col-label"><b>model</b> one decision out</div>
-    <section class="node" id="node-see-hands" data-node="see-hands" data-cast="edge" data-live="off" data-state="off" title="ctrl-click: cut camera link">
+    <div class="col-label"><b>model</b></div>
+    <section class="node" data-ch="hands" id="node-see-hands" data-node="see-hands" data-cast="edge" data-live="off" data-state="off" title="ctrl-click: cut camera link">
       <div class="node-head">
         <span class="light" aria-hidden="true"></span>
         <h3>see-hands</h3>
-        <span class="model-desc">counts hands</span>
       </div>
       <div class="node-out">
         <button type="button" class="slot node-last" data-slot="hands" title="click to read the message"><span class="k none" id="m-hands">nothing sent</span></button>
@@ -134,11 +123,10 @@
       </div>
     </section>
 
-    <section class="node" id="node-hear-commands" data-node="hear-commands" data-cast="edge" data-live="off" data-state="off" title="ctrl-click: cut voice link">
+    <section class="node" data-ch="word" id="node-hear-commands" data-node="hear-commands" data-cast="edge" data-live="off" data-state="off" title="ctrl-click: cut voice link">
       <div class="node-head">
         <span class="light" aria-hidden="true"></span>
         <h3>hear-commands</h3>
-        <span class="model-desc">knows 3 words</span>
       </div>
       <div class="node-out">
         <button type="button" class="slot node-last" data-slot="word" title="click to read the message"><span class="k none" id="m-word">nothing sent</span></button>
@@ -146,11 +134,10 @@
       </div>
     </section>
 
-    <section class="node" id="node-hear-clap" data-node="hear-clap" data-cast="edge" data-live="off" data-state="off" title="ctrl-click: cut clap link">
+    <section class="node" data-ch="clap" id="node-hear-clap" data-node="hear-clap" data-cast="edge" data-live="off" data-state="off" title="ctrl-click: cut clap link">
       <div class="node-head">
         <span class="light" aria-hidden="true"></span>
         <h3>hear-clap</h3>
-        <span class="model-desc">hears a clap</span>
       </div>
       <div class="node-out">
         <button type="button" class="slot node-last" data-slot="clap" title="click to read the message"><span class="k none" id="m-clap">nothing sent</span></button>
@@ -160,24 +147,24 @@
   </div>
 
   <div class="col col-decide">
-    <div class="col-label"><b>decide</b> the highest rule that fires wins</div>
+    <div class="col-label"><b>decide</b> highest wins</div>
 
     <section class="node decide" id="node-fly-drone" data-node="fly-drone" data-cast="edge" data-live="off" data-state="off">
       <div class="node-head">
         <span class="light" aria-hidden="true"></span>
         <h3>fly-drone</h3>
-        <span class="model-desc">one rule table</span>
       </div>
       <ol class="rules" id="rules">
-        <li data-rule="land"><b>land</b><span>hands &gt; 50%</span><em class="rtag" aria-hidden="true"></em></li>
-        <li data-rule="stop"><b>stop</b><span>word stop</span><em class="rtag" aria-hidden="true"></em></li>
-        <li data-rule="move"><b>move</b><span>word up / down</span><em class="rtag" aria-hidden="true"></em></li>
-        <li data-rule="wake"><b>wake</b><span>clap</span><em class="rtag" aria-hidden="true"></em></li>
+        <li data-rule="land" data-ch="hands"><b>land</b><span>hands &gt; 50%</span><em class="rtag" aria-hidden="true"></em></li>
+        <li data-rule="stop" data-ch="word"><b>stop</b><span>word stop</span><em class="rtag" aria-hidden="true"></em></li>
+        <li data-rule="move" data-ch="word"><b>move</b><span>word up / down</span><em class="rtag" aria-hidden="true"></em></li>
+        <li data-rule="wake" data-ch="clap"><b>wake</b><span>clap</span><em class="rtag" aria-hidden="true"></em></li>
       </ol>
     </section>
   </div>
 
   <section class="reveal" id="reveal" aria-hidden="true">
+    <p class="prompt" id="prompt" aria-live="polite"></p>
     <div class="cards" id="reveal-cards"></div>
     <div class="kept" id="kept">
       <div class="kept-row stayed">

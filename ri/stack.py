@@ -5,9 +5,9 @@
     uv run python -m ri.stack status
 
 `up` deploys the four jobs to Expanso Cloud while the Edge agents are still
-offline, stops them, then starts the agents: the senses are alive and grey,
-and nothing carries a decision until the conductor (or the presenter) starts
-the jobs. `down` leaves no process, no port and no Cloud job behind.
+offline, stops them, starts the agents, then starts the four jobs so the rig
+is ready to fly. `--cold` leaves them stopped; a recorded take resets to that
+zero state itself. `down` leaves no process, no port and no Cloud job behind.
 """
 
 from __future__ import annotations
@@ -225,6 +225,11 @@ def up(args: argparse.Namespace) -> int:
         wait_for(p[port_name], name, 120)
     for node, port_name in EDGE_API.items():
         wait_for(p[port_name], f"edge {node}", 60)
+    started = not (args.skip_deploy or args.offline or args.cold)
+    if started:
+        print("expanso cloud: start the four jobs")
+        for job in cloud.JOBS:
+            cloud.rerun(job)
     drone = env.get("RI_DRONE", DEFAULT_DRONE)
     inp = env.get("RI_INPUT", DEFAULT_INPUT)
     hands_inp = env.get("RI_HANDS_INPUT", inp)
@@ -233,7 +238,8 @@ def up(args: argparse.Namespace) -> int:
     url_str = f"http://127.0.0.1:{p['PORT']}/"
     print(
         f"ready: screen on {url_str} (drone={drone}, input={inp}, "
-        f"hands={hands_inp}:{hands_dev}, stage_cam={stage_cam}, pipelines off)"
+        f"hands={hands_inp}:{hands_dev}, stage_cam={stage_cam}, "
+        f"pipelines {'starting' if started else 'off'})"
     )
     return 0
 
@@ -312,6 +318,7 @@ def main() -> int:
         choices=("fixture", "live"),
         default=os.environ.get("RI_INPUT", DEFAULT_INPUT),
     )
+    u.add_argument("--cold", action="store_true", help="leave the four pipelines stopped")
     u.add_argument("--stage-cam", default=None)
     u.add_argument("--hands-roi", default=os.environ.get("RI_HANDS_ROI", ""))
     u.add_argument("--hands-input", choices=("", "fixture", "live"), default="")

@@ -38,16 +38,14 @@ crop planned for this stage lecture screen).
 
 ## Opening state
 
-Before beat 1 begins (`0:00`), the operator bar displays `#pipeline-status` as
-`off` beside `Expanso Cloud`, with safety buttons at the right. Under it the
-prompt line reads the hook in large type. The top tier is the flight arena
-(drone on the `0` line, no trail yet) beside `dark` / `on table`. The bottom
-tier reads left to right: `sense` holds `camera` (live view, hands-up count
-and 50% bar) above `mic` (waveform and `UP/DOWN/STOP/CLAP` chips); `model`
-holds `see-hands`, `hear-commands` and `hear-clap`, each muted with
-`nothing sent` and `0 sent`; `decide` holds the `fly-drone` rule table, with
-one nerve running up to the drone. Safety buttons and the microphone switch
-appear when the pointer is on them.
+Before beat 1 begins (`0:00`) there is no title bar and no prompt line. The
+top tier is the flight arena (drone at the left on the `0` line, no trace yet)
+beside `asleep`. The bottom tier reads left to right: `sense` holds `camera`
+(live view, hands-up count and 50% bar) above `mic` (waveform and
+`UP/DOWN/STOP/CLAP` chips); `model` holds `see-hands`, `hear-commands` and
+`hear-clap`, each muted with `0 sent`; `decide` holds the `fly-drone` rule
+table, with one nerve running to the drone. Pipeline status, safety buttons
+and the microphone switch appear when the pointer is on them.
 The board is drawn at `1920x1080` and scales as a whole to the window.
 
 ## Operator action
