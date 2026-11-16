@@ -437,21 +437,22 @@ function guides(dt) {
 const MONO = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || "monospace";
 
 /* What the room did, in order: one mark per real act, deduplicated so a
-   reflex that fires for ten seconds is one mark, not forty. */
-function trailMarks() {
-  const marks = [];
-  let lastKey = null;
-  let lastT = -Infinity;
+   reflex that fires for ten seconds is one mark, not forty. Marks are kept
+   here because the stream only carries the most recent acts. */
+const trailMarks = [];
 
-  for (const a of state.acts || []) {
-    if (a.act === "hold" || !TRAIL_LABEL[a.act]) continue;
+const markSeen = { key: null, t: -Infinity };
 
-    if (a.act !== lastKey || a.seen_at - lastT > 6) marks.push({ key: a.act, t: a.seen_at });
-    lastKey = a.act;
-    lastT = a.seen_at;
+function noteMarks(snapshot) {
+  for (const a of snapshot.acts || []) {
+    if (a.seen_at <= markSeen.t || a.act === "hold" || !TRAIL_LABEL[a.act]) continue;
+
+    if (a.act !== markSeen.key || a.seen_at - markSeen.t > 6) trailMarks.push({ key: a.act, t: a.seen_at });
+    markSeen.key = a.act;
+    markSeen.t = a.seen_at;
   }
 
-  return marks;
+  while (trailMarks.length && trailMarks[0].t < snapshot.t - TRAIL_S - 5) trailMarks.shift();
 }
 
 function altitudeAt(t) {
@@ -509,7 +510,7 @@ function drawTrail(now) {
   c.font = `600 18px ${MONO}`;
   c.textAlign = "center";
 
-  for (const m of trailMarks()) {
+  for (const m of trailMarks) {
     const x = xOf(m.t);
     const alt = altitudeAt(m.t);
 
@@ -529,8 +530,9 @@ function drawTrail(now) {
     c.arc(x, y, 7, 0, Math.PI * 2);
     c.fill();
 
-    // A label above the line would sit behind the drone while it is close.
-    if (below || x0 - x > 170) {
+    // A label this close would sit behind the drone; the caption beside the
+    // arena says what is happening now.
+    if (x0 - x > 170) {
       const ty = below ? y + 42 : y - 30;
       c.strokeStyle = "#efeae0";
       c.lineWidth = 6;
@@ -1104,10 +1106,17 @@ function apply(snapshot) {
     const lastPt = trailPts[trailPts.length - 1];
 
     // A clock that runs backwards is a new session: start a new trail.
-    if (lastPt && snapshot.t < lastPt.t) trailPts.length = 0;
+    if (lastPt && snapshot.t < lastPt.t) {
+      trailPts.length = 0;
+      trailMarks.length = 0;
+      markSeen.key = null;
+      markSeen.t = -Infinity;
+    }
+
     trailPts.push({ t: snapshot.t, alt: snapshot.drone.altitude_m ?? 0 });
 
     while (trailPts.length && trailPts[0].t < snapshot.t - TRAIL_S - 5) trailPts.shift();
+    noteMarks(snapshot);
   }
 
   state = snapshot;
