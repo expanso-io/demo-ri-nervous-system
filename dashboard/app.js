@@ -873,6 +873,9 @@ function render(now) {
   if (pipeBtn && (!ui.pipePendingUntil || performance.now() > ui.pipePendingUntil)) {
     pipeBtn.textContent = running === 4 ? "pause" : "start pipelines";
     pipeBtn.classList.toggle("on", running === 4);
+    $("collect-switch").setAttribute("aria-checked", String(running === 4));
+    $("collect-switch").dataset.pending = "false";
+    $("collect-label").textContent = running === 4 ? "collecting" : running ? `${running} of 4 on` : "off";
   }
 
   renderDecide(now);
@@ -1283,13 +1286,20 @@ $("btn-kill").addEventListener("click", () => { postJson("/api/kill", {}); });
 
 $("btn-cut").addEventListener("click", () => { postJson("/api/kill", { cut: true }); });
 
-$("btn-pipelines").addEventListener("click", () => {
+/* Collection on or off: start or pause all four pipelines in Expanso Cloud. */
+function toggleCollection() {
   const running = Object.values(state?.nodes || {}).filter((n) => n.live).length;
   const action = running === 4 ? "stop" : "start";
   $("btn-pipelines").textContent = action === "start" ? "starting..." : "pausing...";
+  $("collect-label").textContent = action === "start" ? "starting" : "pausing";
+  $("collect-switch").dataset.pending = "true";
   ui.pipePendingUntil = performance.now() + 8000;
   void postJson("/api/pipelines", { action });
-});
+}
+
+$("btn-pipelines").addEventListener("click", toggleCollection);
+
+$("collect-switch").addEventListener("click", toggleCollection);
 
 async function switchMic(target) {
   try {

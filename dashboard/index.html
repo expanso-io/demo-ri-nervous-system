@@ -64,7 +64,13 @@
   </section>
 
   <div class="col col-senses">
-    <div class="col-label"><b>sense</b></div>
+    <div class="col-label col-label-switch">
+          <b>sense</b>
+          <button type="button" class="collect" id="collect-switch" role="switch" aria-checked="false" title="Turn collection on or off: starts or pauses all four pipelines">
+            <span class="collect-track" aria-hidden="true"><span class="collect-knob"></span></span>
+            <span id="collect-label">off</span>
+          </button>
+        </div>
 
     <section class="sense cam-card" data-ch="hands" id="src-hands" data-sense="hands">
       <div class="sense-main">

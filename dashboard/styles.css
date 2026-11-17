@@ -727,3 +727,14 @@ body[data-beat="handoff"] .handoff { opacity: 1; pointer-events: auto; }
   .node[data-live="on"] .light { animation-duration: 4s; }
   .show[data-airborne="true"] .prop { animation-duration: .3s; }
 }
+
+/* The one control the room may see: collection on or off. */
+.col-label-switch { display: flex; align-items: center; justify-content: space-between; }
+.collect { display: inline-flex; align-items: center; gap: 10px; padding: 0; border: 0; background: none; font: inherit; font-size: 18px; line-height: 26px; color: var(--text-dim); cursor: pointer; }
+.collect-track { width: 48px; height: 26px; border-radius: 9999px; background: var(--idle); display: inline-flex; align-items: center; padding: 3px; transition: background-color .2s; }
+.collect-knob { width: 20px; height: 20px; border-radius: 50%; background: var(--surface); transition: transform .2s; }
+.collect[aria-checked="true"] { color: var(--ok); }
+.collect[aria-checked="true"] .collect-track { background: var(--ok); }
+.collect[aria-checked="true"] .collect-knob { transform: translateX(22px); }
+.collect[data-pending="true"] .collect-track { background: var(--warn); }
+.collect:focus-visible { outline: 2px solid var(--text); outline-offset: 4px; border-radius: 4px; }

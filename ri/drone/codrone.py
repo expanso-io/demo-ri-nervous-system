@@ -18,6 +18,8 @@ from ri.drone import AIRBORNE, DroneState, LedColor, LedMode, Leds, Phase, clamp
 from ri.drone.threaded import CommandWorker
 
 log = logging.getLogger("ri.drone.codrone")
+# At or below this the drone is on the floor and its motors may be cut.
+GROUND_M = 0.15
 
 RGB: dict[str, tuple[int, int, int]] = {
     "off": (0, 0, 0),
@@ -32,7 +34,10 @@ RGB: dict[str, tuple[int, int, int]] = {
 class CoDroneEdu:
     name = "codrone"
 
-    def __init__(self, sdk: Any | None = None, *, port_name: str | None = None) -> None:
+    def __init__(
+        self, sdk: Any | None = None, *, port_name: str | None = None, settle_s: float = 4.0
+    ) -> None:
+        self._settle_s = settle_s
         if sdk is None:
             try:
                 from codrone_edu.drone import Drone
@@ -72,6 +77,7 @@ class CoDroneEdu:
 
         def run() -> None:
             self._drone.land()
+            self._stop_props_on_the_ground()
             self._leds = Leds("green", "breathing")
             with contextlib.suppress(Exception):
                 r, g, b = RGB["green"]
@@ -79,6 +85,26 @@ class CoDroneEdu:
             self._set_phase("parked")
 
         self._worker.submit("land", run, preempt=True)
+
+    def _stop_props_on_the_ground(self) -> None:
+        """Cut the motors once the drone has landed, and only then.
+
+        The motors are cut only after the height sensor reads the floor. If it
+        never does, they are left alone: cutting them in the air is a fall.
+        CONFIRM on the airframe.
+        """
+        deadline = time.monotonic() + self._settle_s
+        while True:
+            try:
+                if float(self._drone.get_height("m")) <= GROUND_M:
+                    self._drone.emergency_stop()
+                    return
+            except Exception:
+                log.debug("height poll failed while settling", exc_info=True)
+            if time.monotonic() >= deadline:
+                log.warning("landed but height never read the floor; motors left alone")
+                return
+            time.sleep(0.1)
 
     def hover(self) -> None:
         def run() -> None:

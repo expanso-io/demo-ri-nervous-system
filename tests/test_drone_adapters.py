@@ -165,3 +165,28 @@ def test_sim_drone_emergency_and_battery() -> None:
     assert st.phase == "parked"
     assert st.altitude_m == 0.0
     assert st.target_m == 0.0
+
+
+def test_codrone_cuts_its_motors_only_once_it_is_on_the_ground() -> None:
+    grounded = FakeCoDroneSDK(height_m=0.05)
+    drone = CoDroneEdu(sdk=grounded, settle_s=0.3)
+    try:
+        drone.take_off(1.0)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        drone.land()
+        _wait_until(lambda: drone.state().phase == "parked")
+        names = [name for name, _ in grounded.calls]
+        assert names.index("emergency_stop") > names.index("land")
+    finally:
+        drone.close()
+
+    aloft = FakeCoDroneSDK(height_m=0.9)
+    drone = CoDroneEdu(sdk=aloft, settle_s=0.3)
+    try:
+        drone.take_off(1.0)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        drone.land()
+        _wait_until(lambda: drone.state().phase == "parked")
+        assert not any(name == "emergency_stop" for name, _ in aloft.calls)
+    finally:
+        drone.close()
