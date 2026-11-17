@@ -42,8 +42,14 @@ class FakeCoDroneSDK:
         # A real airframe climbs faster than any timer assumes.
         self.height_m += self.throttle / 100 * seconds * 5
 
-    def move_distance(self, x: float, y: float, z: float, speed: float) -> None:
-        self.calls.append(("move_distance", (x, y, z, speed)))
+    def sendControlPosition(  # noqa: N802 - the SDK's own name
+        self, x: float, y: float, z: float, speed: float, heading: int, turn: int
+    ) -> None:
+        # The airframe is sent the move a few times over; it flies it once.
+        if self.calls and self.calls[-1] == ("position", (x, y, z, speed)):
+            return
+        self.calls.append(("position", (x, y, z, speed)))
+        self.height_m += z
 
     def set_drone_LED(self, r: int, g: int, b: int, brightness: int) -> None:
         self.calls.append(("set_drone_LED", (r, g, b, brightness)))
@@ -104,7 +110,7 @@ class FakeTelloSDK:
         return self.battery
 
 
-def _wait_until(predicate: Any, timeout_s: float = 1.5) -> None:
+def _wait_until(predicate: Any, timeout_s: float = 8.0) -> None:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if predicate():
@@ -129,11 +135,9 @@ def test_codrone_adapter_clamps_hovers_caches_and_cuts() -> None:
         _wait_until(lambda: drone.state().phase == "hovering")
         assert drone.state().target_m == pytest.approx(MAX_ALTITUDE_M)
 
-        # The climb stops on the measured height, one slice past the ceiling
-        # at most, however hard the airframe climbs.
+        # The climb is asked for only as far as the measured ceiling.
         reached = drone.state().altitude_m
-        assert MAX_ALTITUDE_M <= reached < MAX_ALTITUDE_M + 0.2
-        assert sdk.throttle == 0
+        assert reached == pytest.approx(MAX_ALTITUDE_M)
 
         # Transient telemetry glitch preserves cached battery & altitude.
         sdk.fail_telemetry = True
@@ -200,8 +204,13 @@ def test_codrone_settles_to_the_wake_height_and_flies_a_leg_as_one_diagonal() ->
         assert drone.state().target_m == pytest.approx(WAKE_ALTITUDE_M + 0.1)
 
         drone.move_horizontal(*MOVE["left"])
-        _wait_until(lambda: any(name == "move_distance" for name, _ in sdk.calls))
-        ahead, left, up, speed = next(a for name, a in sdk.calls if name == "move_distance")
+        _wait_until(lambda: any(a[2] == 0 for name, a in sdk.calls if name == "position"))
+        ahead, left, up, speed = next(
+            a for name, a in sdk.calls if name == "position" and a[2] == 0
+        )
+        # A climb is a position move with no sideways part: straight up.
+        climbs = [a for name, a in sdk.calls if name == "position" and a[2] != 0]
+        assert climbs and all(a[0] == 0 and a[1] == 0 for a in climbs)
         assert (ahead, left) == pytest.approx((0.7071, 0.7071), abs=1e-4)
         assert ahead**2 + left**2 == pytest.approx(1.0)
         assert (up, speed) == (0, 0.5)
