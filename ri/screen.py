@@ -292,9 +292,13 @@ def make_handler(board: Board) -> type[BaseHTTPRequestHandler]:
                     board.reset()
                     self._json(200, {"reset": True})
                 elif self.path == "/api/reset-all":
-                    # The presenter's reset: the rule table and route first, so
-                    # a refusal (a real drone still in the air) clears nothing.
-                    post(url("FLIGHT_PORT", "/reset"), {})
+                    # The presenter's reset stops first: land the drone, hold it
+                    # down, then clear the rule table, the route and the board.
+                    post(url("FLIGHT_PORT", "/kill"), {})
+                    with contextlib.suppress(ValueError):
+                        # Refused while a real drone is still coming down; the
+                        # stop above has already spent whatever was pending.
+                        post(url("FLIGHT_PORT", "/reset"), {})
                     board.reset()
                     self._json(200, {"reset": True})
                 elif self.path == "/api/kill":

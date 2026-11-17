@@ -31,6 +31,9 @@ from ri.ports import DEFAULT_DRONE, port
 from ri.route import MOVE, ROUTE, need
 
 LOW_BATTERY_PCT = 20
+# After the presenter's stop nothing the room does can move the drone for
+# this long: the stop has to hold while the landing is still noisy.
+STOP_QUIET_S = 10.0
 # The marshalled route is on unless RI_ROUTE=0, for a show where the camera
 # faces a crowd and two raised arms must never move the drone.
 ROUTE_ON = os.environ.get("RI_ROUTE", "1") != "0"
@@ -56,6 +59,7 @@ class Flight:
         self.last_action: Action | None = None
         self.decisions = 0
         self.step = 0  # how much of the fixed route has been flown
+        self.quiet_until = 0.0
 
     def apply(self, action: Action) -> None:
         state = self.drone.state()
@@ -81,9 +85,14 @@ class Flight:
         with self.lock:
             self.decider.observe(decision)
             now = time.time()
-            wanted = need(self.step) if ROUTE_ON else None
-            action = self.decider.decide(self.drone.state(), now, wanted)
-            self.apply(action)
+            if now < self.quiet_until:
+                # Whatever was heard is spent, not saved for later.
+                self.decider.suppress_pending()
+                action = Action("hold", "presenter stop", None, t=now)
+            else:
+                wanted = need(self.step) if ROUTE_ON else None
+                action = self.decider.decide(self.drone.state(), now, wanted)
+                self.apply(action)
             self.last_action = action
             self.decisions += 1
         body = action.to_json()
@@ -95,6 +104,7 @@ class Flight:
         with self.lock:
             state = self.drone.state()
             self.decider.suppress_pending()
+            self.quiet_until = time.time() + STOP_QUIET_S
             if cut:
                 action = Action("land", "emergency motor cut", "land", t=time.time())
                 self.drone.set_leds(*LEDS["land"])

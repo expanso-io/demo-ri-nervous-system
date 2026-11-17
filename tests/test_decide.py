@@ -288,3 +288,10 @@ def test_stop_beats_the_route() -> None:
     d.observe(hands(1, 1, gesture="forward"))
     d.observe(word("stop"))
     assert d.decide(drone(), NOW, need="forward").act == "stop"
+
+
+def test_a_clap_heard_during_a_landing_does_not_wake_the_drone_when_it_lands() -> None:
+    d = Decider()
+    d.observe(clap(t=NOW, conf=0.99, seq=5))
+    assert d.decide(drone("landing", 0.0), NOW).act == "hold"
+    assert d.decide(drone("parked", 0.0), NOW + 1.0).act == "hold"

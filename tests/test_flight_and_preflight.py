@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from typing import Any
@@ -359,3 +360,21 @@ def test_default_live_hardware_and_parameter_overrides(monkeypatch: pytest.Monke
     assert sim_env["RI_INPUT"] == "fixture"
     assert sim_env["RI_STAGE_CAM"] == "none"
     assert "RI_HANDS_DEVICE" not in sim_env
+
+
+def test_after_the_presenters_stop_nothing_wakes_the_drone(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(flight_mod, "Bus", FakeBus)
+    fl = flight_mod.Flight("sim")
+    try:
+        fl.drone.take_off(1.0)
+        fl.kill(cut=False)
+        clap = json.dumps({"sense": "clap", "confidence": 0.99, "t": time.time(), "seq": 1})
+        assert fl.decide(clap.encode())["because"] == "presenter stop"
+        # Once the quiet spell is over, that same clap is spent, and a new one wakes it.
+        fl.quiet_until = 0.0
+        fl.drone.emergency()
+        assert fl.decide(clap.encode())["act"] == "hold"
+        fresh = json.dumps({"sense": "clap", "confidence": 0.99, "t": time.time(), "seq": 2})
+        assert fl.decide(fresh.encode())["act"] == "wake"
+    finally:
+        fl.shutdown()

@@ -114,7 +114,7 @@ class Decider:
             self._consume(word, clap)
             return Action("land", because, "land", tuple(inputs), t=now)
         if landing and word is not None:
-            self._consume(word)
+            self._consume(word, clap)
             return Action(
                 "hold", f"landing: word {word.value} ignored", None, (word.label(),), t=now
             )
@@ -162,7 +162,10 @@ class Decider:
             return Action("wake", "clap", "wake", (clap.label(),), t=now)
 
         # Nothing actionable: hold, and say why.
-        self._consume(clap if drone.airborne else None)
+        # A clap heard while flying or coming down is spent. Left pending, a
+        # clap during a landing (or the thump of the landing itself) would
+        # wake the drone the instant it touched the floor.
+        self._consume(clap if drone.airborne or landing else None)
         if word is not None and not drone.airborne:
             self._consume(word)
             return Action("hold", "asleep: say up to wake", None, (word.label(),), t=now)
