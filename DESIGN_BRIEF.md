@@ -66,8 +66,10 @@ a recorded take resets to the zero state and starts them on camera.
 The drone flies one fixed route, set in `ri/route.py`: ahead, a jog left,
 ahead, back to the centre line, ahead, then it lands. Nobody steers. An arm
 signal from the nearest person to the camera releases the next step, and only
-when it is the signal that step asks for: both arms up for ahead, both arms
-out to one side for that side. The wrong signal, or none, and the drone holds.
+when it is the signal that step asks for, given the way a ground marshal
+waves an aircraft in: both arms raised and beckoning for ahead; one arm held
+out to a side while the other beckons for that side. Still arms, however they
+are held, are no signal. The wrong wave, or none, and the drone holds.
 The route is drawn across the top of the arena, one bar per leg; the drone's
 place across the arena is how much of the route it has flown. `RI_ROUTE=0`
 turns the route off for a show where the camera faces a crowd.

@@ -252,7 +252,7 @@ def test_the_right_arm_signal_releases_one_step_of_the_route() -> None:
     d = Decider()
     d.observe(hands(1, 1, gesture="left"))
     action = d.decide(drone(), NOW, need="left")
-    assert (action.act, action.because, action.rule) == ("go", "arms left", "route")
+    assert (action.act, action.because, action.rule) == ("go", "wave left", "route")
     # The same signal message is one step, not a stream of them.
     assert d.decide(drone(), NOW, need="left").act == "hold"
 
@@ -261,7 +261,7 @@ def test_the_wrong_arm_signal_holds_and_says_what_the_route_wants() -> None:
     d = Decider()
     d.observe(hands(1, 1, gesture="right"))
     action = d.decide(drone(), NOW, need="forward")
-    assert (action.act, action.because) == ("hold", "wants arms forward")
+    assert (action.act, action.because) == ("hold", "wants a wave forward")
     assert action.waiting
 
 

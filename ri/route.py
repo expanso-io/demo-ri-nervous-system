@@ -1,6 +1,6 @@
 """The route: a fixed path the drone may follow and nothing else.
 
-The path is decided here, before anyone is on stage. An arm signal never
+The path is decided here, before anyone is on stage. A marshal's wave never
 steers the drone; it only releases the next step of this path, and only when
 it is the signal that step asks for. Any other signal, or none, and the drone
 holds where it is.

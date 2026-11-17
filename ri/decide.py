@@ -146,9 +146,9 @@ class Decider:
         if drone.phase == "hovering" and need and signal is not None and signal.gesture:
             self._consume(signal)
             if signal.gesture == need:
-                return Action("go", f"arms {need}", "route", (signal.label(),), t=now)
+                return Action("go", f"wave {need}", "route", (signal.label(),), t=now)
             return Action(
-                "hold", f"wants arms {need}", "route", (signal.label(),), waiting=True, t=now
+                "hold", f"wants a wave {need}", "route", (signal.label(),), waiting=True, t=now
             )
 
         # Rule 5, wake: the word up, or a clap, brings a dark or parked drone

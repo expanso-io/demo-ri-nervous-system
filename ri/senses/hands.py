@@ -8,6 +8,7 @@ and dropped on this device; only the counts leave it.
 
 from __future__ import annotations
 
+import itertools
 import math
 import os
 import time
@@ -37,6 +38,10 @@ Roi = tuple[float, float, float, float]
 # before two arms count as pointing that way.
 SIDE_REACH = 0.6
 RAISE_REACH = 0.3
+# A wave: a wrist that travels this many shoulder widths inside the window.
+WAVE_TRAVEL = 1.2
+WAVE_MIN_FRAMES = 4
+Arms = tuple[float, float, float, float]
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,7 @@ class FrameCount:
     raw_up: int | None = None
     raw_seen: int | None = None
     gesture: str | None = None
+    arms: Arms | None = None
 
 
 def parse_roi(spec: str | Roi | None) -> Roi | None:
@@ -129,12 +135,12 @@ def hands_up(keypoints: Array, *, margin_ratio: float = 0.0) -> int:
     return votes
 
 
-def marshal_signal(keypoints: Array) -> str | None:
-    """The arm signal of the nearest person: forward, left, right, or none.
+def arm_pose(keypoints: Array) -> Arms | None:
+    """Where the nearest person's two wrists are, in shoulder widths.
 
-    Both arms raised is forward. Both arms out to one side is that side, as
-    the camera sees it. The nearest person is the one with the widest
-    shoulders in the frame; everyone else is ignored.
+    Each wrist is (across, down) from the middle of the shoulder line, so the
+    numbers mean the same thing however far the person stands from the camera.
+    The nearest person is the one with the widest shoulders in the frame.
     """
     best: Array | None = None
     best_span = 0.0
@@ -148,12 +154,40 @@ def marshal_signal(keypoints: Array) -> str | None:
         return None
     centre = (float(best[SHOULDERS[0]][0]) + float(best[SHOULDERS[1]][0])) / 2
     line = min(float(best[i][1]) for i in SHOULDERS)
-    reach = [(float(best[i][0]) - centre) / best_span for i in WRISTS]
-    if all(r < -(0.5 + SIDE_REACH) for r in reach):
-        return "left"
-    if all(r > 0.5 + SIDE_REACH for r in reach):
-        return "right"
-    if all(float(best[i][1]) < line - RAISE_REACH * best_span for i in WRISTS):
+    a, b = (
+        ((float(best[i][0]) - centre) / best_span, (float(best[i][1]) - line) / best_span)
+        for i in WRISTS
+    )
+    return (a[0], a[1], b[0], b[1])
+
+
+def _waving(track: list[tuple[float, float]]) -> bool:
+    """A wrist is waving when it travels a long way and ends up near where it began."""
+    travel = sum(math.dist(p, q) for p, q in itertools.pairwise(track))
+    return travel >= WAVE_TRAVEL and math.dist(track[0], track[-1]) <= 0.5 * travel
+
+
+def marshal_signal(poses: list[Arms]) -> str | None:
+    """The signal a ground marshal is giving, read from a second or so of arms.
+
+    Both arms raised and beckoning is ahead. One arm held out to a side while
+    the other beckons is a turn to that side, as the camera sees it. Arms that
+    are still, however they are held, are no signal at all.
+    """
+    if len(poses) < WAVE_MIN_FRAMES:
+        return None
+    wrists = [[(p[0], p[1]) for p in poses], [(p[2], p[3]) for p in poses]]
+    mean = [(sum(x for x, _ in t) / len(t), sum(y for _, y in t) / len(t)) for t in wrists]
+    waving = [_waving(t) for t in wrists]
+    raised = [m[1] < -RAISE_REACH for m in mean]
+    for held, other in ((0, 1), (1, 0)):
+        if not (raised[other] and waving[other]) or waving[held]:
+            continue
+        if mean[held][0] < -(0.5 + SIDE_REACH):
+            return "left"
+        if mean[held][0] > 0.5 + SIDE_REACH:
+            return "right"
+    if all(raised) and any(waving):
         return "forward"
     return None
 
@@ -310,7 +344,7 @@ class HandCounter:
             time.time() if now is None else now,
             raw_up=up,
             raw_seen=seen,
-            gesture=marshal_signal(np.asarray(raw)),
+            arms=arm_pose(np.asarray(raw)),
         ), boxes
 
     def count_frame(self, image: Array, now: float | None = None) -> FrameCount:
@@ -335,9 +369,4 @@ class HandCounter:
         )
 
     def _held_signal(self) -> str | None:
-        """A signal counts once it has been held for most of the window."""
-        signals = [c.gesture for c in self.window]
-        for name in set(signals) - {None}:
-            if signals.count(name) * 2 > len(signals) and len(signals) >= 3:
-                return name
-        return None
+        return marshal_signal([c.arms for c in self.window if c.arms is not None])

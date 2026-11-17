@@ -224,22 +224,42 @@ def test_close_up_arm_boxes_work_without_confident_shoulders() -> None:
     assert boxes[0].up is False
 
 
-def _pose(left_wrist: tuple[float, float], right_wrist: tuple[float, float]) -> Any:
-    """One person, shoulders at x 40 and 60, y 50; wrists where told."""
-    person = np.zeros((17, 3), dtype=np.float32)
-    person[5] = (40, 50, 0.9)
-    person[6] = (60, 50, 0.9)
-    person[9] = (*left_wrist, 0.9)
-    person[10] = (*right_wrist, 0.9)
-    return person[None, ...]
+def _arms(frames: int, left: Any, right: Any) -> list[tuple[float, float, float, float]]:
+    """Wrist tracks in shoulder widths; each argument maps a frame number to (across, down)."""
+    return [(*left(n), *right(n)) for n in range(frames)]
 
 
-def test_marshal_signal_reads_the_three_arm_signals() -> None:
+def _beckon(across: float) -> Any:
+    return lambda n: (across, -1.0 + (0.5 if n % 2 else -0.5))
+
+
+def _rise(across: float) -> Any:
+    return lambda n: (across, 1.0 - 0.3 * n)
+
+
+def _still(across: float, down: float) -> Any:
+    return lambda _n: (across, down)
+
+
+def test_marshal_signal_needs_a_wave_not_a_pose() -> None:
     from ri.senses.hands import marshal_signal
 
-    assert marshal_signal(_pose((38, 20), (62, 20))) == "forward"
-    assert marshal_signal(_pose((10, 50), (20, 45))) == "left"
-    assert marshal_signal(_pose((80, 50), (90, 45))) == "right"
-    assert marshal_signal(_pose((38, 80), (62, 80))) is None
-    # One arm out and one arm down is not a signal.
-    assert marshal_signal(_pose((10, 50), (62, 80))) is None
+    assert marshal_signal(_arms(8, _beckon(-0.6), _beckon(0.6))) == "forward"
+    assert marshal_signal(_arms(8, _still(-1.6, 0.0), _beckon(0.6))) == "left"
+    assert marshal_signal(_arms(8, _beckon(-0.6), _still(1.6, 0.0))) == "right"
+    # Arms held up without moving are not a signal, and neither is pointing.
+    assert marshal_signal(_arms(8, _still(-0.6, -1.0), _still(0.6, -1.0))) is None
+    assert marshal_signal(_arms(8, _still(-1.6, 0.0), _still(0.6, 1.0))) is None
+    # Raising both arms once travels a long way but never comes back.
+    assert marshal_signal(_arms(8, _rise(-0.6), _rise(0.6))) is None
+    assert marshal_signal(_arms(2, _beckon(-0.6), _beckon(0.6))) is None
+
+
+def test_arm_pose_measures_the_nearest_person_in_shoulder_widths() -> None:
+    from ri.senses.hands import arm_pose
+
+    person = np.zeros((17, 3), dtype=np.float32)
+    person[5], person[6] = (40, 50, 0.9), (60, 50, 0.9)
+    person[9], person[10] = (20, 30, 0.9), (70, 50, 0.9)
+    assert arm_pose(person[None, ...]) == pytest.approx((-1.5, -1.0, 1.0, 0.0))
+    assert arm_pose(np.zeros((1, 17, 3), dtype=np.float32)) is None

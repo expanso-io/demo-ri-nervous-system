@@ -137,7 +137,7 @@ const TRAIL_LABEL = { wake: "wake", up: "up", down: "down", stop: "stop", land: 
 const AIRBORNE = ["taking_off", "hovering", "climbing", "descending", "cruising", "landing"];
 
 /* What the presenter does with their arms for each signal the route asks for. */
-const ARMS_HINT = { forward: "both arms up", left: "both arms left", right: "both arms right" };
+const ARMS_HINT = { forward: "wave it ahead", left: "wave it left", right: "wave it right" };
 
 const LEG_LABEL = { forward: "ahead", left: "left", right: "right" };
 
@@ -704,7 +704,7 @@ function label(sense, m) {
 
   if (sense === "word") return `${m.value} ${m.confidence.toFixed(2)}`;
 
-  if (m.gesture) return `arms ${m.gesture}`;
+  if (m.gesture) return `wave ${m.gesture}`;
 
   return `${m.up ?? 0} of ${m.seen ?? 0} hands`;
 }
