@@ -190,3 +190,19 @@ def test_codrone_cuts_its_motors_only_once_it_is_on_the_ground() -> None:
         assert not any(name == "emergency_stop" for name, _ in aloft.calls)
     finally:
         drone.close()
+
+
+def test_codrone_on_the_floor_stops_claiming_to_hover() -> None:
+    sdk = FakeCoDroneSDK(height_m=1.0)
+    drone = CoDroneEdu(sdk=sdk, grounded_s=0.2)
+    try:
+        drone.take_off(1.0)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        time.sleep(0.3)
+        assert drone.state().phase == "hovering"
+        sdk.height_m = 0.0  # picked up, unplugged, or down on a low battery
+        _wait_until(lambda: drone.state().phase == "parked")
+        assert drone.state().target_m == 0.0
+        assert not drone.state().airborne
+    finally:
+        drone.close()

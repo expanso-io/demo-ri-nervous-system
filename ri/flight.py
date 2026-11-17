@@ -101,7 +101,9 @@ class Flight:
                 self.drone.emergency()
             else:
                 action = Action("land", "presenter stop", "land", t=time.time())
-                if state.phase not in ("dark", "parked", "landing"):
+                # A real airframe is told to land whatever we believe its phase
+                # is: the belief can be wrong, and the stop key must not be.
+                if self.drone_name != "sim" or state.phase not in ("dark", "parked", "landing"):
                     self.drone.set_leds(*LEDS["land"])
                     self.drone.land()
             self.last_action = action

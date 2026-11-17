@@ -35,9 +35,16 @@ class CoDroneEdu:
     name = "codrone"
 
     def __init__(
-        self, sdk: Any | None = None, *, port_name: str | None = None, settle_s: float = 4.0
+        self,
+        sdk: Any | None = None,
+        *,
+        port_name: str | None = None,
+        settle_s: float = 4.0,
+        grounded_s: float = 3.0,
     ) -> None:
         self._settle_s = settle_s
+        self._grounded_s = grounded_s
+        self._floor_since: float | None = None
         if sdk is None:
             try:
                 from codrone_edu.drone import Drone
@@ -105,6 +112,24 @@ class CoDroneEdu:
                 log.warning("landed but height never read the floor; motors left alone")
                 return
             time.sleep(0.1)
+
+    def _notice_the_floor(self, now: float) -> None:
+        """A drone that says it is hovering while it sits on the floor is not flying.
+
+        The phase is kept here, not read from the airframe, so a drone that is
+        picked up, unplugged, or lands on a low battery would otherwise be
+        "hovering" for ever and ignore every wake. Called with the lock held.
+        """
+        if self._phase != "hovering" or self._altitude > GROUND_M:
+            self._floor_since = None
+            return
+        if self._floor_since is None:
+            self._floor_since = now
+        elif now - self._floor_since >= self._grounded_s:
+            log.warning("hovering but on the floor for %.0f s: parked", self._grounded_s)
+            self._phase = "parked"
+            self._target = 0.0
+            self._floor_since = None
 
     def hover(self) -> None:
         def run() -> None:
@@ -194,6 +219,7 @@ class CoDroneEdu:
             with self._lock:
                 self._altitude = max(0.0, altitude)
                 self._battery = battery
+                self._notice_the_floor(time.monotonic())
         except Exception:
             log.debug("codrone telemetry poll failed", exc_info=True)
         with self._lock:
