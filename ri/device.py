@@ -444,6 +444,7 @@ class HandsDevice(Device):
         self._boxes_at = 0.0
         # Rehearsal only: the fixture crowd has no presenter, so a cue stands in.
         self.forced_signal: str | None = None
+        self.arms_in_view = False
 
     def close(self) -> None:
         if self.camera is not None:
@@ -503,6 +504,7 @@ class HandsDevice(Device):
         with self.lock:
             count, boxes = self.counter.detect_frame(image)
             smoothed = self.counter.add(count)
+            self.arms_in_view = count.arms is not None
             self._last_boxes = boxes
             self._boxes_at = time.monotonic()
             self.windows += 1
@@ -539,6 +541,9 @@ class HandsDevice(Device):
         body = super().telemetry()
         body["fps"] = round(self.fps, 1)
         body["wave"] = list(self.wave)
+        # Whether someone's shoulders and both wrists were in the last frame:
+        # without them no wave can ever be read.
+        body["arms"] = self.arms_in_view
         if self.camera is not None and self.camera.device_name:
             body["camera"] = self.camera.device_name
         return body

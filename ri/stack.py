@@ -225,7 +225,7 @@ def up(args: argparse.Namespace) -> int:
         wait_for(p[port_name], name, 120)
     for node, port_name in EDGE_API.items():
         wait_for(p[port_name], f"edge {node}", 60)
-    started = not (args.skip_deploy or args.offline or args.cold)
+    started = not (args.offline or args.cold)
     if started:
         print("expanso cloud: start the four jobs")
         for job in cloud.JOBS:
@@ -260,6 +260,31 @@ def stop_process(name: str) -> None:
     path.unlink(missing_ok=True)
 
 
+def reap_orphan_captures() -> int:
+    """Stop this rig's microphone and camera readers that outlived their rig.
+
+    A capture reader is an ffmpeg child of a device. If the device dies first
+    the reader is adopted by init and keeps the microphone open for ever. Only
+    readers with no parent left, and with exactly the arguments this rig
+    starts them with, are stopped.
+    """
+    listing = subprocess.run(
+        ["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True, check=False
+    ).stdout
+    count = 0
+    for line in listing.splitlines():
+        pid, ppid, command = [*line.split(None, 2), "", "", ""][:3]
+        ours = "ffmpeg" in command and "-f avfoundation" in command and "pipe:1" in command
+        ours = ours or (
+            "ffmpeg" in command and "-f avfoundation" in command and "image2pipe" in command
+        )
+        if ours and ppid == "1":
+            with contextlib.suppress(OSError, ValueError):
+                os.kill(int(pid), signal.SIGTERM)
+                count += 1
+    return count
+
+
 def down(args: argparse.Namespace) -> int:
     with contextlib.suppress(OSError):
         req = urllib.request.Request(
@@ -275,6 +300,9 @@ def down(args: argparse.Namespace) -> int:
     # Edge agents first so they drain, then the services they call.
     for name in sorted(names, key=lambda n: (not n.startswith("edge-"), n == "broker")):
         stop_process(name)
+    reaped = reap_orphan_captures()
+    if reaped:
+        print(f"stopped {reaped} leftover capture process(es) from earlier runs")
     busy = [f"{k}={v}" for k, v in ports().items() if listening(v)]
     left = [p.stem for p in RUNTIME.glob("*.pid")]
     if busy or left:

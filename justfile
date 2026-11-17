@@ -48,6 +48,17 @@ preflight-sim:
 preflight-cam drone=default_drone cam=default_cam input="live":
     just preflight {{drone}} {{input}} "{{cam}}"
 
+# Is the running rig ready to fly? One line per thing that can let you down.
+ready wait="0":
+    uv run python -m ri.ready --wait {{wait}}
+
+# Fast clean restart between run-throughs: same jobs in Expanso Cloud, fresh
+# processes on the current code, then the readiness check.
+again drone=default_drone cam=default_cam mic=default_mic:
+    uv run python -m ri.stack down --keep-jobs
+    uv run python -m ri.stack up --skip-deploy --drone {{drone}} --input live --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input live
+    just ready 45
+
 # Stop every process, free every port, delete the four Cloud jobs.
 down:
     uv run python -m ri.stack down

@@ -378,3 +378,56 @@ def test_after_the_presenters_stop_nothing_wakes_the_drone(monkeypatch: pytest.M
         assert fl.decide(fresh.encode())["act"] == "wake"
     finally:
         fl.shutdown()
+
+
+def _rig(**over: Any) -> dict[str, Any]:
+    mic = {"mic": "laptop", "captured_bytes": 100, "level": 0.2, "wave": [3, 9]}
+    state: dict[str, Any] = {
+        "nodes": {
+            n: {"live": True} for n in ("hear-clap", "hear-commands", "see-hands", "fly-drone")
+        },
+        "devices": {
+            "hear-clap": dict(mic),
+            "hear-commands": dict(mic),
+            "see-hands": {"captured_bytes": 100, "arms": True},
+        },
+        "latest": {"hands": {"seen": 1}},
+        "drone": {"phase": "parked", "altitude_m": 0.0, "battery": 80},
+    }
+    state.update(over)
+    return state
+
+
+def _later(state: dict[str, Any]) -> dict[str, Any]:
+    after: dict[str, Any] = json.loads(json.dumps(state))
+    for device in after["devices"].values():
+        device["captured_bytes"] += 500
+    return after
+
+
+def _failed(first: dict[str, Any], **kw: Any) -> list[str]:
+    from ri.ready import judge
+
+    checks = judge(
+        first, _later(first), stale_code=kw.get("stale", False), disk_free=kw.get("disk", 0.5)
+    )
+    return [c.name for c in checks if not c.ok]
+
+
+def test_ready_passes_a_healthy_rig_and_names_each_thing_that_is_wrong() -> None:
+    assert _failed(_rig()) == []
+    assert _failed(_rig(), stale=True) == ["code"]
+    assert _failed(_rig(), disk=0.01) == ["disk"]
+    # The two failures seen on 2026-11-16: a silent microphone, and a rig that
+    # believed a drone on the floor was hovering.
+    silent = _rig()
+    silent["devices"]["hear-clap"].update(level=0.0, wave=[0, 0])
+    assert _failed(silent) == ["mic hear-clap"]
+    assert _failed(_rig(drone={"phase": "hovering", "altitude_m": 0.0, "battery": 80})) == ["drone"]
+    assert _failed(_rig(drone={"phase": "parked", "altitude_m": 0.0, "battery": 20})) == ["battery"]
+    chair = _rig()
+    chair["devices"]["see-hands"]["arms"] = False
+    assert _failed(chair) == ["camera"]
+    off = _rig()
+    off["nodes"]["fly-drone"]["live"] = False
+    assert _failed(off) == ["pipelines"]
