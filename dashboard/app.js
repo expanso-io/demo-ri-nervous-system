@@ -1338,10 +1338,31 @@ window.addEventListener("review-alert", () => {
   if (alertEl) alertEl.hidden = false;
 });
 
+const FORCE_KEYS = {
+  ArrowUp: ["word", "up"],
+  ArrowDown: ["word", "down"],
+  s: ["word", "stop"],
+  c: ["clap", "clap"],
+  w: ["hands", "forward"],
+  a: ["hands", "left"],
+  d: ["hands", "right"],
+};
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeInspect();
     postJson("/api/kill", event.shiftKey ? { cut: true } : {});
+
+    return;
+  }
+
+  // The stage fallback: a key sends the decision a model should have made.
+  const forced = FORCE_KEYS[event.key.length === 1 ? event.key.toLowerCase() : event.key];
+
+  if (forced && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+
+    if (!event.repeat) postJson("/api/cue", { sense: forced[0], force: forced[1] });
 
     return;
   }

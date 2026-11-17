@@ -263,3 +263,14 @@ def test_arm_pose_measures_the_nearest_person_in_shoulder_widths() -> None:
     person[9], person[10] = (20, 30, 0.9), (70, 50, 0.9)
     assert arm_pose(person[None, ...]) == pytest.approx((-1.5, -1.0, 1.0, 0.0))
     assert arm_pose(np.zeros((1, 17, 3), dtype=np.float32)) is None
+
+
+def test_a_forced_decision_is_what_the_model_would_have_sent() -> None:
+    from ri.device import forced_decision
+    from ri.messages import parse_decision
+
+    assert parse_decision(forced_decision("word", "up", 7).to_json()).value == "up"
+    assert parse_decision(forced_decision("hands", "left", 8).to_json()).gesture == "left"
+    assert parse_decision(forced_decision("clap", "clap", 9).to_json()).sense == "clap"
+    with pytest.raises(ValueError, match="cannot force"):
+        forced_decision("word", "left", 1)

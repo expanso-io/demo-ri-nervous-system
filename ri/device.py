@@ -95,6 +95,30 @@ def pink(n: int, rng: np.random.Generator) -> Array:
     return np.asarray(noise / (noise.std() + 1e-9), dtype=np.float32)
 
 
+FORCEABLE: dict[str, tuple[str, ...]] = {
+    "clap": ("clap",),
+    "word": ("up", "down", "stop"),
+    "hands": ("forward", "left", "right"),
+}
+
+
+def forced_decision(sense: str, value: str, seq: int) -> Decision:
+    """The decision a model would have sent, typed by the presenter instead.
+
+    The stage fallback: when a microphone or camera lets the presenter down,
+    a key sends the decision the model should have made. It leaves the device
+    the same way a real one does, through the pipeline.
+    """
+    if value not in FORCEABLE.get(sense, ()):
+        raise ValueError(f"cannot force {value!r} on {sense!r}")
+    now = time.time()
+    if sense == "clap":
+        return Decision("clap", now, confidence=0.99, seq=seq)
+    if sense == "word":
+        return Decision("word", now, confidence=0.99, value=value, seq=seq)
+    return Decision("hands", now, up=1, seen=1, share=1.0, gesture=value, seq=seq)
+
+
 class Device:
     def __init__(self, sense: str, *, input_mode: str = "fixture") -> None:
         self.sense = sense
@@ -114,10 +138,29 @@ class Device:
         self.ingest = f"http://127.0.0.1:{port(self.spec['ingest'])}/frames"
         self.last_emit: dict[str, float] = {}
         self.clip_rotation: dict[str, int] = {}
+        self.forced: deque[str] = deque()
 
     def close(self) -> None:
         with contextlib.suppress(Exception):
             self.bus.stop()
+
+    def force(self, value: str) -> dict[str, Any]:
+        """Queue a presenter-typed decision; the next window carries it out."""
+        if value not in FORCEABLE.get(self.sense, ()):
+            raise ValueError(f"cannot force {value!r} on {self.sense!r}")
+        with self.lock:
+            self.forced.append(value)
+        return {"forced": value}
+
+    def answer(self, payload: bytes) -> dict[str, Any]:
+        """What the pipeline's model step gets back: a forced decision, or the model's."""
+        with self.lock:
+            value = self.forced.popleft() if self.forced else None
+        if value is None:
+            return self.infer(payload)
+        with self.lock:
+            self.windows += 1
+        return forced_decision(self.sense, value, self.next_seq()).to_json()
 
     # --- capture --------------------------------------------------------
     def capture(self) -> None:
@@ -534,9 +577,13 @@ def make_handler(device: Device) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:
             try:
                 if self.path == "/infer":
-                    self._reply(200, device.infer(self._body()))
+                    self._reply(200, device.answer(self._body()))
                 elif self.path == "/cue":
-                    self._reply(200, device.cue(json.loads(self._body() or b"{}")))
+                    cue = json.loads(self._body() or b"{}")
+                    if "force" in cue:
+                        self._reply(200, device.force(str(cue["force"])))
+                    else:
+                        self._reply(200, device.cue(cue))
                 elif self.path == "/link":
                     body = json.loads(self._body() or b"{}")
                     device.link_cut = bool(body.get("cut", not device.link_cut))
