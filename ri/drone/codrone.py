@@ -14,12 +14,25 @@ import threading
 import time
 from typing import Any
 
-from ri.drone import AIRBORNE, DroneState, LedColor, LedMode, Leds, Phase, clamp_altitude
+from ri.drone import (
+    AIRBORNE,
+    MAX_ALTITUDE_M,
+    DroneState,
+    LedColor,
+    LedMode,
+    Leds,
+    Phase,
+    clamp_altitude,
+)
 from ri.drone.threaded import CommandWorker
 
 log = logging.getLogger("ri.drone.codrone")
 # At or below this the drone is on the floor and its motors may be cut.
 GROUND_M = 0.15
+# A height step flies on the measured height, never on a timer.
+CLIMB_THROTTLE = 30
+CLIMB_SLICE_S = 0.1
+LOWEST_M = 0.5
 
 RGB: dict[str, tuple[int, int, int]] = {
     "off": (0, 0, 0),
@@ -39,12 +52,13 @@ class CoDroneEdu:
         sdk: Any | None = None,
         *,
         port_name: str | None = None,
-        settle_s: float = 4.0,
+        settle_s: float = 10.0,
         grounded_s: float = 3.0,
     ) -> None:
         self._settle_s = settle_s
         self._grounded_s = grounded_s
         self._floor_since: float | None = None
+        self._abort = threading.Event()
         if sdk is None:
             try:
                 from codrone_edu.drone import Drone
@@ -79,6 +93,7 @@ class CoDroneEdu:
         self._worker.submit("take_off", run)
 
     def land(self) -> None:
+        self._abort.set()
         self._target = 0.0
         self._set_phase("landing")
 
@@ -150,16 +165,50 @@ class CoDroneEdu:
             self._phase = "climbing" if delta > 0 else "descending"
 
         def run() -> None:
-            # Duration and throttle tuned for CoDrone EDU ~0.3m/s vertical step.
-            self._drone.set_throttle(40 if delta > 0 else -40)
-            self._drone.move(abs(delta) * 1.6)
-            self._drone.set_throttle(0)
-            self._drone.hover(0.3)
+            self._step_height(delta)
             with self._lock:
                 if self._phase in ("climbing", "descending"):
                     self._phase = "hovering"
 
         self._worker.submit("move_vertical", run)
+
+    def _height(self) -> float | None:
+        try:
+            return float(self._drone.get_height("m"))
+        except Exception:
+            log.debug("height read failed", exc_info=True)
+            return None
+
+    def _step_height(self, delta: float) -> None:
+        """Climb or sink by `delta` on the measured height, under a hard ceiling.
+
+        A timed burst of throttle has no idea how far the drone went; on the
+        airframe it went far past the step. So the throttle stays on only
+        until the height sensor reads the goal, and never without a reading.
+        """
+        start = self._height()
+        if start is None:
+            log.warning("no height reading: height step skipped")
+            return
+        ceiling, floor = min(start + delta, MAX_ALTITUDE_M), max(start + delta, LOWEST_M)
+        goal = ceiling if delta > 0 else floor
+        if abs(goal - start) < 0.05:
+            log.info("height step skipped at %.2f m: at the limit", start)
+            return
+        self._abort.clear()
+        deadline = time.monotonic() + abs(delta) * 6 + 1.0
+        height: float | None = start
+        self._drone.set_throttle(CLIMB_THROTTLE if delta > 0 else -CLIMB_THROTTLE)
+        try:
+            while time.monotonic() < deadline and not self._abort.is_set():
+                self._drone.move(CLIMB_SLICE_S)
+                height = self._height()
+                if height is None or (height >= goal if delta > 0 else height <= goal):
+                    break
+        finally:
+            self._drone.set_throttle(0)
+            self._drone.hover(0.3)
+        log.info("height step %.2f -> %s m (goal %.2f)", start, height, goal)
 
     def move_horizontal(self, forward_m: float, right_m: float) -> None:
         with self._lock:
@@ -194,6 +243,7 @@ class CoDroneEdu:
         self._worker.submit("set_leds", lambda: self._drone.set_drone_LED(r, g, b, 100))
 
     def emergency(self) -> None:
+        self._abort.set()
         self._target = 0.0
         self._leds = Leds("red", "solid")
         self._set_phase("parked")

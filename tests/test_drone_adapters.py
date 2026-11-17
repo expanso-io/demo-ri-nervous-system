@@ -17,6 +17,7 @@ class FakeCoDroneSDK:
         self.battery = battery
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.fail_telemetry = False
+        self.throttle = 0
 
     def takeoff(self) -> None:
         self.calls.append(("takeoff", ()))
@@ -29,9 +30,12 @@ class FakeCoDroneSDK:
 
     def set_throttle(self, pct: int) -> None:
         self.calls.append(("set_throttle", (pct,)))
+        self.throttle = pct
 
     def move(self, seconds: float) -> None:
         self.calls.append(("move", (seconds,)))
+        # A real airframe climbs faster than any timer assumes.
+        self.height_m += self.throttle / 100 * seconds * 5
 
     def set_drone_LED(self, r: int, g: int, b: int, brightness: int) -> None:
         self.calls.append(("set_drone_LED", (r, g, b, brightness)))
@@ -113,14 +117,20 @@ def test_codrone_adapter_clamps_hovers_caches_and_cuts() -> None:
     try:
         drone.take_off(1.0)
         _wait_until(lambda: drone.state().phase == "hovering")
-        drone.move_vertical(2.0)  # clamped to MAX_ALTITUDE_M (2.0)
+        drone.move_vertical(2.0)  # clamped to MAX_ALTITUDE_M
         _wait_until(lambda: drone.state().phase == "hovering")
         assert drone.state().target_m == pytest.approx(MAX_ALTITUDE_M)
+
+        # The climb stops on the measured height, one slice past the ceiling
+        # at most, however hard the airframe climbs.
+        reached = drone.state().altitude_m
+        assert MAX_ALTITUDE_M <= reached < MAX_ALTITUDE_M + 0.2
+        assert sdk.throttle == 0
 
         # Transient telemetry glitch preserves cached battery & altitude.
         sdk.fail_telemetry = True
         st = drone.state()
-        assert st.altitude_m == pytest.approx(1.1)
+        assert st.altitude_m == pytest.approx(reached)
         assert st.battery == 88
 
         drone.set_leds("blue", "solid")

@@ -24,8 +24,8 @@ LedColor = Literal["off", "white", "blue", "amber", "red", "green"]
 LedMode = Literal["off", "solid", "breathing"]
 
 WAKE_ALTITUDE_M = 1.0
-MAX_ALTITUDE_M = 2.0
-STEP_M = 0.5
+MAX_ALTITUDE_M = 1.8
+STEP_M = 0.2
 
 
 def clamp_altitude(altitude_m: float) -> float:

@@ -229,6 +229,7 @@ class AudioDevice(Device):
         self.wave: deque[int] = deque([0] * 32, maxlen=32)
         self.playing: list[tuple[Array, int]] = []
         self.model: Any = None
+        self.mic_wanted = device_spec or DEFAULT_MIC
         self.mic: LiveMic | None = (
             LiveMic(device_spec or DEFAULT_MIC, SR) if input_mode == "live" else None
         )
@@ -240,6 +241,7 @@ class AudioDevice(Device):
             body["wave"] = list(self.wave)
         if mic is not None and mic.device_name:
             body["mic"] = mic.device_name
+            body["mic_wanted"] = self.mic_wanted
         return body
 
     def set_source(
@@ -259,6 +261,8 @@ class AudioDevice(Device):
         with self.lock:
             old_mic = self.mic
             self.mic = new_mic
+            if new_mic is not None:
+                self.mic_wanted = spec or "dji"
             self.input_mode = mode
         if old_mic is not None:
             old_mic.close()

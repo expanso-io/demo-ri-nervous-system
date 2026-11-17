@@ -431,3 +431,20 @@ def test_ready_passes_a_healthy_rig_and_names_each_thing_that_is_wrong() -> None
     off = _rig()
     off["nodes"]["fly-drone"]["live"] = False
     assert _failed(off) == ["pipelines"]
+
+
+def test_ready_fails_when_the_rig_fell_back_to_another_mic() -> None:
+    from ri.ready import judge
+
+    wrong = {"mic": "MacBook Pro Microphone", "mic_wanted": "dji"}
+    before, after = _rig(), _rig()
+    for state, heard in ((before, 100), (after, 200)):
+        for name in ("hear-clap", "hear-commands"):
+            state["devices"][name].update(wrong, captured_bytes=heard)
+    checks = {c.name: c for c in judge(before, after, stale_code=False, disk_free=0.5)}
+    assert not checks["mic hear-commands"].ok
+    assert "asked for dji" in checks["mic hear-commands"].detail
+    for name in ("hear-clap", "hear-commands"):
+        after["devices"][name]["mic"] = "DJI Mic Mini"
+    checks = {c.name: c for c in judge(before, after, stale_code=False, disk_free=0.5)}
+    assert checks["mic hear-commands"].ok

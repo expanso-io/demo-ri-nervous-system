@@ -95,6 +95,16 @@ class Flight:
                 self.apply(action)
             self.last_action = action
             self.decisions += 1
+            if action.act != "hold" or action.inputs:
+                state = self.drone.state()
+                log.info(
+                    "%s: %s (from %s; %s at %.2f m)",
+                    action.act,
+                    action.because,
+                    decision.label(),
+                    state.phase,
+                    state.altitude_m,
+                )
         body = action.to_json()
         body["from"] = decision.label()
         body["sense"] = decision.sense
@@ -111,6 +121,7 @@ class Flight:
                 self.drone.emergency()
             else:
                 action = Action("land", "presenter stop", "land", t=time.time())
+                log.info("land: presenter stop (%s at %.2f m)", state.phase, state.altitude_m)
                 # A real airframe is told to land whatever we believe its phase
                 # is: the belief can be wrong, and the stop key must not be.
                 if self.drone_name != "sim" or state.phase not in ("dark", "parked", "landing"):

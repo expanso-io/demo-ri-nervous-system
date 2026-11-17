@@ -40,6 +40,14 @@ class Check:
     fix: str = ""
 
 
+def _wrong_mic(device: dict[str, Any]) -> bool:
+    """The rig falls back to another mic without a word when the asked-for one is absent."""
+    wanted = str(device.get("mic_wanted") or "").lower()
+    if wanted in ("", "auto", "default") or wanted.isdigit():
+        return False
+    return wanted not in str(device.get("mic") or "").lower()
+
+
 def judge(first: State, last: State, *, stale_code: bool, disk_free: float) -> list[Check]:
     """Every check, from two snapshots of the rig taken a few seconds apart."""
     checks: list[Check] = []
@@ -77,6 +85,15 @@ def judge(first: State, last: State, *, stale_code: bool, disk_free: float) -> l
                     False,
                     f"{after.get('mic')}: audio is pure silence",
                     "System Settings > Privacy > Microphone: allow your terminal, reopen it",
+                )
+            )
+        elif _wrong_mic(after):
+            checks.append(
+                Check(
+                    f"mic {name}",
+                    False,
+                    f"asked for {after.get('mic_wanted')}, listening on {after.get('mic')}",
+                    "switch on and plug in the mic receiver, then `just again`",
                 )
             )
         else:
