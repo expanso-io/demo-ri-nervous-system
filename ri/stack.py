@@ -114,6 +114,10 @@ def services() -> list[tuple[str, list[str]]]:
     return found
 
 
+# Services this run started, so a start that dies can say why at once.
+STARTED: dict[str, tuple[subprocess.Popen[bytes], Path]] = {}
+
+
 def pid_file(name: str) -> Path:
     return RUNTIME / f"{name}.pid"
 
@@ -144,6 +148,7 @@ def start(name: str, argv: list[str], env: dict[str, str]) -> None:
         start_new_session=True,
     )
     existing.write_text(str(proc.pid))
+    STARTED[name] = (proc, RUNTIME / f"{name}.log")
     print(f"  {name}: pid {proc.pid}")
 
 
@@ -153,13 +158,25 @@ def listening(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def last_words(log: Path, lines: int = 6) -> str:
+    try:
+        tail = log.read_text(errors="replace").strip().splitlines()[-lines:]
+    except OSError:
+        return ""
+    return "\n".join(f"    {line}" for line in tail)
+
+
 def wait_for(port: int, what: str, seconds: float = 60) -> None:
+    started = STARTED.get(what)
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if listening(port):
             return
+        if started and started[0].poll() is not None:
+            raise SystemExit(f"{what} quit while starting. It said:\n{last_words(started[1])}")
         time.sleep(0.5)
-    raise SystemExit(f"{what} did not come up on 127.0.0.1:{port}; see .runtime/*.log")
+    said = f" It said:\n{last_words(started[1])}" if started else ""
+    raise SystemExit(f"{what} did not come up on 127.0.0.1:{port}.{said}")
 
 
 def screen_environment(env: dict[str, str]) -> dict[str, str]:
