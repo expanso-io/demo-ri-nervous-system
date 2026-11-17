@@ -16,6 +16,7 @@ from ri.drone import DroneState, LedColor, LedMode, Leds, Phase, clamp_altitude
 
 CLIMB_M_PER_S = 0.6
 LAND_M_PER_S = 0.5
+CRUISE_M_PER_S = 0.4
 SETTLE_M = 0.01
 
 
@@ -34,6 +35,7 @@ class SimDrone:
         default_battery = float(os.environ.get("RI_SIM_BATTERY", "100"))
         self._battery = default_battery if battery is None else float(battery)
         self._last = clock()
+        self._cruise_until = 0.0
 
     def _advance(self) -> None:
         now = self._clock()
@@ -41,6 +43,8 @@ class SimDrone:
         self._last = now
         if self._phase in ("taking_off", "climbing", "descending", "hovering", "landing"):
             self._battery = max(0.0, self._battery - dt * 0.2)
+        if self._phase == "cruising" and now >= self._cruise_until:
+            self._phase = "hovering"
         speed = LAND_M_PER_S if self._phase == "landing" else CLIMB_M_PER_S
         gap = self._target - self._altitude
         step = speed * dt
@@ -69,9 +73,18 @@ class SimDrone:
     def hover(self) -> None:
         with self._lock:
             self._advance()
-            if self._phase in ("climbing", "descending", "taking_off"):
+            if self._phase in ("climbing", "descending", "taking_off", "cruising"):
                 self._target = self._altitude
                 self._phase = "hovering"
+
+    def move_horizontal(self, forward_m: float, right_m: float) -> None:
+        with self._lock:
+            self._advance()
+            if self._phase != "hovering":
+                return
+            distance = abs(forward_m) + abs(right_m)
+            self._cruise_until = self._clock() + distance / CRUISE_M_PER_S
+            self._phase = "cruising"
 
     def move_vertical(self, dz_m: float) -> None:
         with self._lock:

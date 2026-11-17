@@ -33,6 +33,10 @@ SHOULDERS = (5, 6)
 ARMS = ((7, 9), (8, 10))
 WRISTS = (9, 10)
 Roi = tuple[float, float, float, float]
+# How far past the shoulders both wrists must reach, in shoulder widths,
+# before two arms count as pointing that way.
+SIDE_REACH = 0.6
+RAISE_REACH = 0.3
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,7 @@ class FrameCount:
     t: float
     raw_up: int | None = None
     raw_seen: int | None = None
+    gesture: str | None = None
 
 
 def parse_roi(spec: str | Roi | None) -> Roi | None:
@@ -122,6 +127,35 @@ def hands_up(keypoints: Array, *, margin_ratio: float = 0.0) -> int:
         if min(float(w[1]) for w in wrists) < threshold:
             votes += 1
     return votes
+
+
+def marshal_signal(keypoints: Array) -> str | None:
+    """The arm signal of the nearest person: forward, left, right, or none.
+
+    Both arms raised is forward. Both arms out to one side is that side, as
+    the camera sees it. The nearest person is the one with the widest
+    shoulders in the frame; everyone else is ignored.
+    """
+    best: Array | None = None
+    best_span = 0.0
+    for person in keypoints:
+        if any(person[i][2] < KEYPOINT_MIN for i in (*SHOULDERS, *WRISTS)):
+            continue
+        span = abs(float(person[SHOULDERS[0]][0]) - float(person[SHOULDERS[1]][0]))
+        if span > best_span:
+            best, best_span = person, span
+    if best is None or best_span <= 0.0:
+        return None
+    centre = (float(best[SHOULDERS[0]][0]) + float(best[SHOULDERS[1]][0])) / 2
+    line = min(float(best[i][1]) for i in SHOULDERS)
+    reach = [(float(best[i][0]) - centre) / best_span for i in WRISTS]
+    if all(r < -(0.5 + SIDE_REACH) for r in reach):
+        return "left"
+    if all(r > 0.5 + SIDE_REACH for r in reach):
+        return "right"
+    if all(float(best[i][1]) < line - RAISE_REACH * best_span for i in WRISTS):
+        return "forward"
+    return None
 
 
 def hand_boxes_from_pose(
@@ -271,7 +305,12 @@ class HandCounter:
                 seen = 1
                 up = 1 if any(b.up for b in boxes) else 0
         return FrameCount(
-            up, seen, time.time() if now is None else now, raw_up=up, raw_seen=seen
+            up,
+            seen,
+            time.time() if now is None else now,
+            raw_up=up,
+            raw_seen=seen,
+            gesture=marshal_signal(np.asarray(raw)),
         ), boxes
 
     def count_frame(self, image: Array, now: float | None = None) -> FrameCount:
@@ -292,4 +331,13 @@ class HandCounter:
             count.t,
             raw_up=count.up if count.raw_up is None else count.raw_up,
             raw_seen=count.seen if count.raw_seen is None else count.raw_seen,
+            gesture=self._held_signal(),
         )
+
+    def _held_signal(self) -> str | None:
+        """A signal counts once it has been held for most of the window."""
+        signals = [c.gesture for c in self.window]
+        for name in set(signals) - {None}:
+            if signals.count(name) * 2 > len(signals) and len(signals) >= 3:
+                return name
+        return None

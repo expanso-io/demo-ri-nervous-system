@@ -33,6 +33,7 @@ class Decision:
     up: int = 0
     seen: int = 0
     share: float = 0.0
+    gesture: str | None = None
     seq: int = 0
 
     @property
@@ -46,6 +47,8 @@ class Decision:
             return f"clap {self.confidence:.2f}"
         if self.sense == "word":
             return f"{self.value} {self.confidence:.2f}"
+        if self.gesture:
+            return f"arms {self.gesture}"
         return f"hands {round(self.share * 100)}%"
 
     def to_json(self) -> dict[str, Any]:
@@ -57,6 +60,8 @@ class Decision:
             body["confidence"] = round(self.confidence, 2)
         else:
             body.update(up=self.up, seen=self.seen, share=round(self.share, 2))
+            if self.gesture:
+                body["gesture"] = self.gesture
         body["t"] = round(self.t, 3)
         body["seq"] = self.seq
         return body
@@ -86,6 +91,9 @@ def parse_decision(raw: bytes | str | dict[str, Any]) -> Decision:
             return Decision("word", t, confidence=float(data["confidence"]), value=value, seq=seq)
         up, seen = int(data["up"]), int(data["seen"])
         share = float(data.get("share", up / seen if seen else 0.0))
-        return Decision("hands", t, up=up, seen=seen, share=share, seq=seq)
+        gesture = data.get("gesture")
+        if gesture is not None and gesture not in ("forward", "left", "right"):
+            raise MessageError(f"unknown gesture: {gesture!r}")
+        return Decision("hands", t, up=up, seen=seen, share=share, gesture=gesture, seq=seq)
     except (KeyError, TypeError) as error:
         raise MessageError(f"incomplete {sense} decision: {error}") from None

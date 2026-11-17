@@ -590,7 +590,7 @@ body {
 
 .node.decide { flex: 1; cursor: default; gap: 10px; }
 
-.rules { list-style: none; display: grid; grid-template-rows: repeat(4, minmax(0, 1fr)); gap: 10px; flex: 1; min-height: 0; }
+.rules { list-style: none; display: grid; grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 8px; flex: 1; min-height: 0; }
 
 .rules li {
   display: grid;

@@ -61,6 +61,17 @@ stay hidden until the pointer is on the top right corner or the `mic` card;
 board. `just up` starts the four pipelines, so the rig opens ready to fly;
 a recorded take resets to the zero state and starts them on camera.
 
+## The marshalled route
+
+The drone flies one fixed route, set in `ri/route.py`: ahead, a jog left,
+ahead, back to the centre line, ahead, then it lands. Nobody steers. An arm
+signal from the nearest person to the camera releases the next step, and only
+when it is the signal that step asks for: both arms up for ahead, both arms
+out to one side for that side. The wrong signal, or none, and the drone holds.
+The route is drawn across the top of the arena, one bar per leg; the drone's
+place across the arena is how much of the route it has flown. `RI_ROUTE=0`
+turns the route off for a show where the camera faces a crowd.
+
 ## Scenario cast
 
 - **Sources (waveforms + live meters):** one `handheld mic` (auto-preferring a

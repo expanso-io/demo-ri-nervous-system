@@ -1,11 +1,13 @@
 """The decide node: one readable rule table and nothing clever.
 
-    land > stop > move > wake
+    land > stop > move > route > wake
 
 * A decision is fresh for 3 s. A stale decision is never acted on; the drone
   holds instead. A late message cannot move the drone.
 * Land needs more than half of the voting block with at least 10 people seen.
 * Each word and each clap is acted on at most once.
+* The route is fixed. An arm signal releases its next step only when it is
+  the signal that step asks for; it never steers.
 * The word up wakes a sleeping drone; each further up is one step higher.
 * When a land and a word arrive together, the land wins and the word is
   recorded as having lost. That rule is the whole safety system.
@@ -20,6 +22,7 @@ from typing import Any, Literal
 
 from ri.drone import MAX_ALTITUDE_M, STEP_M, WAKE_ALTITUDE_M, DroneState
 from ri.messages import Decision, Sense
+from ri.route import END
 
 FRESH_S = 3.0
 LAND_SHARE = 0.5
@@ -29,8 +32,8 @@ CLAP_MIN = 0.5
 WORD_MIN = 0.5
 FLOOR_M = WAKE_ALTITUDE_M
 
-Act = Literal["land", "stop", "up", "down", "wake", "hold"]
-RULES: tuple[str, ...] = ("land", "stop", "move", "wake")
+Act = Literal["land", "stop", "up", "down", "go", "wake", "hold"]
+RULES: tuple[str, ...] = ("land", "stop", "move", "route", "wake")
 
 
 @dataclass(frozen=True)
@@ -91,7 +94,7 @@ class Decider:
     def suppress_pending(self) -> None:
         self._consume(self.latest.get("clap"), self.latest.get("word"))
 
-    def decide(self, drone: DroneState, now: float) -> Action:
+    def decide(self, drone: DroneState, now: float, need: str | None = None) -> Action:
         hands = self.fresh("hands", now)
         word = self._pending("word", now, WORD_MIN)
         clap = self._pending("clap", now, CLAP_MIN)
@@ -135,7 +138,20 @@ class Decider:
                 return Action("hold", "lowest safe height", "move", (word.label(),), t=now)
             return Action(act, f"word {word.value}", "move", (word.label(),), t=now)
 
-        # Rule 4, wake: the word up, or a clap, brings a dark or parked drone
+        # Rule 4, route: the next step of the fixed path, released only by the
+        # arm signal that step asks for. The end of the path is a landing.
+        if drone.phase == "hovering" and need == END:
+            return Action("land", "end of route", "route", t=now)
+        signal = hands if hands is not None and hands.key not in self.consumed else None
+        if drone.phase == "hovering" and need and signal is not None and signal.gesture:
+            self._consume(signal)
+            if signal.gesture == need:
+                return Action("go", f"arms {need}", "route", (signal.label(),), t=now)
+            return Action(
+                "hold", f"wants arms {need}", "route", (signal.label(),), waiting=True, t=now
+            )
+
+        # Rule 5, wake: the word up, or a clap, brings a dark or parked drone
         # up to hover. Every further up is one more step of height (rule 3).
         grounded = not drone.airborne and drone.phase != "landing"
         if grounded and word is not None and word.value == "up":

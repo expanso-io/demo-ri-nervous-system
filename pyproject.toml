@@ -51,6 +51,7 @@ module = [
     "soundfile.*",
     "torchaudio.*",
     "ultralytics.*",
+"codrone_edu.*",
 ]
 ignore_missing_imports = true
 

@@ -99,6 +99,31 @@ class TelloDrone:
 
         self._worker.submit("move_vertical", run)
 
+    def move_horizontal(self, forward_m: float, right_m: float) -> None:
+        with self._lock:
+            if self._phase != "hovering":
+                return
+            self._phase = "cruising"
+
+        def run() -> None:
+            if forward_m:
+                cm = max(MIN_MOVE_CM, round(abs(forward_m) * 100))
+                if forward_m > 0:
+                    self._tello.move_forward(cm)
+                else:
+                    self._tello.move_back(cm)
+            if right_m:
+                cm = max(MIN_MOVE_CM, round(abs(right_m) * 100))
+                if right_m > 0:
+                    self._tello.move_right(cm)
+                else:
+                    self._tello.move_left(cm)
+            with self._lock:
+                if self._phase == "cruising":
+                    self._phase = "hovering"
+
+        self._worker.submit("move_horizontal", run)
+
     def set_leds(self, color: LedColor, mode: LedMode) -> None:
         self._leds = Leds(color, mode)
 

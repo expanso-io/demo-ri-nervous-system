@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from functools import cache
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -221,3 +222,24 @@ def test_close_up_arm_boxes_work_without_confident_shoulders() -> None:
     boxes = hand_boxes_from_pose(kp, shape=(380, 420), allow_close_arm=True)
     assert len(boxes) == 1
     assert boxes[0].up is False
+
+
+def _pose(left_wrist: tuple[float, float], right_wrist: tuple[float, float]) -> Any:
+    """One person, shoulders at x 40 and 60, y 50; wrists where told."""
+    person = np.zeros((17, 3), dtype=np.float32)
+    person[5] = (40, 50, 0.9)
+    person[6] = (60, 50, 0.9)
+    person[9] = (*left_wrist, 0.9)
+    person[10] = (*right_wrist, 0.9)
+    return person[None, ...]
+
+
+def test_marshal_signal_reads_the_three_arm_signals() -> None:
+    from ri.senses.hands import marshal_signal
+
+    assert marshal_signal(_pose((38, 20), (62, 20))) == "forward"
+    assert marshal_signal(_pose((10, 50), (20, 45))) == "left"
+    assert marshal_signal(_pose((80, 50), (90, 45))) == "right"
+    assert marshal_signal(_pose((38, 80), (62, 80))) is None
+    # One arm out and one arm down is not a signal.
+    assert marshal_signal(_pose((10, 50), (62, 80))) is None

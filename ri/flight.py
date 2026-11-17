@@ -28,8 +28,12 @@ from ri.decide import Action, Decider
 from ri.drone import STEP_M, WAKE_ALTITUDE_M, DroneAdapter, LedColor, LedMode, make_adapter
 from ri.messages import MessageError, parse_decision
 from ri.ports import DEFAULT_DRONE, port
+from ri.route import MOVE, ROUTE, need
 
 LOW_BATTERY_PCT = 20
+# The marshalled route is on unless RI_ROUTE=0, for a show where the camera
+# faces a crowd and two raised arms must never move the drone.
+ROUTE_ON = os.environ.get("RI_ROUTE", "1") != "0"
 log = logging.getLogger("ri.flight")
 
 LEDS: dict[str, tuple[LedColor, LedMode]] = {
@@ -37,6 +41,7 @@ LEDS: dict[str, tuple[LedColor, LedMode]] = {
     "up": ("blue", "solid"),
     "down": ("amber", "solid"),
     "stop": ("white", "solid"),
+    "go": ("blue", "solid"),
     "land": ("red", "solid"),
 }
 
@@ -50,13 +55,18 @@ class Flight:
         self.bus = Bus("flight").start()
         self.last_action: Action | None = None
         self.decisions = 0
+        self.step = 0  # how much of the fixed route has been flown
 
     def apply(self, action: Action) -> None:
         state = self.drone.state()
         if action.act in LEDS:
             self.drone.set_leds(*LEDS[action.act])
         if action.act == "wake":
+            self.step = 0
             self.drone.take_off(WAKE_ALTITUDE_M)
+        elif action.act == "go" and self.step < len(ROUTE):
+            self.drone.move_horizontal(*MOVE[ROUTE[self.step]])
+            self.step += 1
         elif action.act == "up":
             self.drone.move_vertical(STEP_M)
         elif action.act == "down":
@@ -71,7 +81,8 @@ class Flight:
         with self.lock:
             self.decider.observe(decision)
             now = time.time()
-            action = self.decider.decide(self.drone.state(), now)
+            wanted = need(self.step) if ROUTE_ON else None
+            action = self.decider.decide(self.drone.state(), now, wanted)
             self.apply(action)
             self.last_action = action
             self.decisions += 1
@@ -109,12 +120,14 @@ class Flight:
                 self.decider.reset()
                 self.last_action = None
                 self.decisions = 0
+                self.step = 0
                 return {"reset": True}
             self.drone.close()
             self.drone = make_adapter("sim")
             self.decider = Decider()
             self.last_action = None
             self.decisions = 0
+            self.step = 0
         return {"reset": True}
 
     def shutdown(self) -> None:
@@ -132,7 +145,7 @@ class Flight:
                 state = self.drone.state()
                 # Back to white once a step finishes, so colour always means
                 # "what it is doing now".
-                if state.phase == "hovering" and previous in ("climbing", "descending"):
+                if state.phase == "hovering" and previous in ("climbing", "descending", "cruising"):
                     self.drone.set_leds("white", "solid")
                     state = self.drone.state()
                 previous = state.phase
@@ -141,6 +154,8 @@ class Flight:
                 log.warning("low drone battery: %d%%", state.battery)
             body = state.to_json()
             body["decisions"] = self.decisions
+            if ROUTE_ON:
+                body["route"] = {"step": self.step, "legs": list(ROUTE), "need": need(self.step)}
             self.bus.publish(DRONE_TOPIC, body)
             time.sleep(0.1)
 

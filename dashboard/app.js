@@ -46,6 +46,7 @@ const LED = {
 };
 
 const ACT_COLOR = {
+  go: COLORS.up,
   land: COLORS.err,
   up: COLORS.up,
   down: COLORS.warn,
@@ -129,11 +130,16 @@ const flight = { tau: 0, lastT: null, phase: null, pts: [], marks: [], markKey: 
 
 const FLIGHT_SPAN_S = 200;
 
-const CRAFT_START = 64;
+const CRAFT_START = 120;
 
-const TRAIL_LABEL = { wake: "wake", up: "up", down: "down", stop: "stop", land: "hands up" };
+const TRAIL_LABEL = { wake: "wake", up: "up", down: "down", stop: "stop", land: "land" };
 
-const AIRBORNE = ["taking_off", "hovering", "climbing", "descending", "landing"];
+const AIRBORNE = ["taking_off", "hovering", "climbing", "descending", "cruising", "landing"];
+
+/* What the presenter does with their arms for each signal the route asks for. */
+const ARMS_HINT = { forward: "both arms up", left: "both arms left", right: "both arms right" };
+
+const LEG_LABEL = { forward: "ahead", left: "left", right: "right" };
 
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
@@ -469,7 +475,15 @@ function noteFlight(snapshot) {
   const d = snapshot.drone;
 
   if (!d) return;
-  const reset = (flight.lastT !== null && snapshot.t < flight.lastT) || (d.phase === "dark" && flight.phase && flight.phase !== "dark");
+  const legs = d.route?.legs?.length ?? 0;
+  const step = legs ? Math.min(d.route.step, legs) : 0;
+
+  const reset =
+    (flight.lastT !== null && snapshot.t < flight.lastT) ||
+    (d.phase === "dark" && flight.phase && flight.phase !== "dark") ||
+    (legs > 0 && step < (flight.step ?? 0));
+
+  flight.step = step;
 
   if (reset) {
     flight.tau = 0;
@@ -481,7 +495,15 @@ function noteFlight(snapshot) {
 
   const dt = flight.lastT === null || reset ? 0 : Math.min(1, snapshot.t - flight.lastT);
 
-  if (AIRBORNE.includes(d.phase)) flight.tau += dt;
+  if (legs) {
+    // On a fixed route the drone's place across the arena is how much of the
+    // route it has flown, not how long it has been in the air.
+    const target = (FLIGHT_SPAN_S * step) / legs;
+    flight.tau = Math.min(target, flight.tau + (dt * FLIGHT_SPAN_S) / legs / 0.7);
+  } else if (AIRBORNE.includes(d.phase)) {
+    flight.tau += dt;
+  }
+
   flight.lastT = snapshot.t;
   flight.phase = d.phase;
   const alt = d.altitude_m ?? 0;
@@ -498,11 +520,46 @@ function noteFlight(snapshot) {
   }
 }
 
+/* The fixed route, drawn across the top of the arena: one bar per leg, named
+   for the arm signal that releases it. Flown legs are ink, the leg being
+   asked for is lit, the rest wait. */
+function drawRoute(c) {
+  const route = state?.drone?.route;
+  const legs = route?.legs ?? [];
+
+  if (!legs.length) return;
+  const xAt = (i) => sky.airLeft + CRAFT_START + (flightSpan() * i) / legs.length + sky.quadW / 2 - sky.left;
+  const y = 78;
+  c.font = `600 18px ${MONO}`;
+  c.textAlign = "center";
+  c.lineCap = "round";
+
+  for (let a = 0; a < legs.length; ) {
+    let b = a + 1;
+
+    while (b < legs.length && legs[b] === legs[a]) b += 1;
+    const done = b <= route.step;
+    const current = !done && a <= route.step;
+    const color = done ? "rgba(28, 25, 23, 0.85)" : current ? COLORS.ember : "rgba(28, 25, 23, 0.3)";
+    c.strokeStyle = color;
+    c.fillStyle = color;
+    c.lineWidth = current ? 6 : 4;
+    c.beginPath();
+    c.moveTo(xAt(a) + 8, y);
+    c.lineTo(xAt(b) - 8, y);
+    c.stroke();
+    c.fillText(LEG_LABEL[legs[a]] ?? legs[a], (xAt(a) + xAt(b)) / 2, y - 16);
+    a = b;
+  }
+}
+
 /* The trace: the session as one line that ends at the drone, with what the
    room did marked on it. */
 function drawTrail() {
   const c = trailCtx;
   c.clearRect(0, 0, sky.w, sky.h);
+
+  drawRoute(c);
 
   if (flight.pts.length < 2) return;
   // The trace joins the drone at its left skid, so the drone never covers it.
@@ -531,28 +588,28 @@ function drawTrail() {
   c.font = `600 24px ${MONO}`;
   c.textAlign = "center";
 
+  const labelled = [];
+
   for (const m of flight.marks) {
     const x = xOf(m.tau);
 
     if (x < minX) continue;
     const y = yOf(m.alt);
     const color = ACT_COLOR[m.key] ?? COLORS.ember;
-    const below = y < sky.h - 110;
     c.strokeStyle = color;
     c.fillStyle = color;
-    c.lineWidth = 3;
-    c.beginPath();
-    c.moveTo(x, y);
-    c.lineTo(x, below ? y + 26 : y - 26);
-    c.stroke();
     c.beginPath();
     c.arc(x, y, 8, 0, Math.PI * 2);
     c.fill();
 
     // A label this close would sit behind the drone; the caption beside the
     // arena says what is happening now.
-    if (x0 - x > 60) {
-      const ty = below ? y + 50 : y - 36;
+    if (x0 - x > 60 || Math.abs(yOf(state?.drone?.altitude_m ?? 0) - y) > 40) {
+      const ty = y - 18;
+
+      // Two acts at the same spot share one label rather than overprinting.
+      if (labelled.some((p) => Math.abs(p.x - x) < 90 && Math.abs(p.y - ty) < 28)) continue;
+      labelled.push({ x, y: ty });
       c.strokeStyle = "#efeae0";
       c.lineWidth = 7;
       c.strokeText(TRAIL_LABEL[m.key], x, ty);
@@ -647,6 +704,8 @@ function label(sense, m) {
 
   if (sense === "word") return `${m.value} ${m.confidence.toFixed(2)}`;
 
+  if (m.gesture) return `arms ${m.gesture}`;
+
   return `${m.up ?? 0} of ${m.seen ?? 0} hands`;
 }
 
@@ -654,6 +713,7 @@ const PHASE = {
   dark: "asleep",
   taking_off: "taking off",
   hovering: "hovering",
+  cruising: "moving",
   climbing: "climbing",
   descending: "descending",
   landing: "landing",
@@ -839,7 +899,8 @@ function renderFocus(now) {
   for (const sense of Object.keys(NODE_OF)) {
     const m = state.latest[sense];
     const live = state.nodes[NODE_OF[sense]].live;
-    const busy = sense === "hands" ? Boolean(m && m.seen >= 10 && m.share >= 0.2) : age(m, now) < ACT_STICKY_S;
+    const voting = Boolean(m && ((m.seen >= 10 && m.share >= 0.2) || m.gesture));
+    const busy = sense === "hands" ? voting && age(m, now) < ACT_STICKY_S : age(m, now) < ACT_STICKY_S;
 
     if (live && busy) focus.add(sense);
   }
@@ -856,7 +917,8 @@ function renderDecide(now) {
   if (!act) ui.lastRealAct = null;
 
   if (act && act.act !== "hold") ui.lastRealAct = act;
-  const recent = ui.lastRealAct && age(ui.lastRealAct, now) < ACT_STICKY_S ? ui.lastRealAct : null;
+  // A hold that is waiting on the room is news; it is not hidden behind the last act.
+  const recent = !act?.waiting && ui.lastRealAct && age(ui.lastRealAct, now) < ACT_STICKY_S ? ui.lastRealAct : null;
   const shown = recent || act;
   const because = $("because");
   const hold = shown?.act === "hold";
@@ -867,7 +929,9 @@ function renderDecide(now) {
 
   if (!act || idleHold) {
     $("why-label").textContent = "";
-    $("why").textContent = asleep && state.nodes["fly-drone"].live ? "say up to wake it" : "";
+    const need = state.drone?.phase === "hovering" ? state.drone?.route?.need : null;
+    const hint = ARMS_HINT[need] ? `next: ${ARMS_HINT[need]}` : "";
+    $("why").textContent = asleep && state.nodes["fly-drone"].live ? "say up to wake it" : hint;
   } else {
     $("why-label").textContent = hold ? "holding" : `${shown.act}, because`;
     $("why").textContent = plainWhy(shown.because);
@@ -886,7 +950,7 @@ function renderDecide(now) {
     const rule = li.dataset.rule;
     const won = Boolean(recent && recent.rule === rule);
     const lost = (rule === "move" && lostWord) || (rule === "stop" && lostStop);
-    const pending = !won && rule === "land" && shown?.act === "hold" && Boolean(shown?.waiting);
+    const pending = !won && rule === (shown?.rule ?? "land") && shown?.act === "hold" && Boolean(shown?.waiting);
     li.classList.toggle("won", won);
     li.classList.toggle("lost", lost);
     li.classList.toggle("pending", pending);
@@ -911,7 +975,7 @@ function renderDrone() {
   if (!d || !d.phase) return;
   const card = $("drone");
   card.dataset.phase = d.phase;
-  card.dataset.airborne = String(["taking_off", "hovering", "climbing", "descending", "landing"].includes(d.phase));
+  card.dataset.airborne = String(AIRBORNE.includes(d.phase));
   const bat = $("bat");
   const hasBat = Number.isFinite(d.battery);
   bat.textContent = hasBat ? `battery ${d.battery}%` : "battery --";

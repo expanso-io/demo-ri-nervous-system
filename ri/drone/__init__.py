@@ -11,8 +11,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Protocol
 
-Phase = Literal["dark", "taking_off", "hovering", "climbing", "descending", "landing", "parked"]
-AIRBORNE: frozenset[str] = frozenset({"taking_off", "hovering", "climbing", "descending"})
+Phase = Literal[
+    "dark", "taking_off", "hovering", "climbing", "descending", "landing", "parked", "cruising"
+]
+AIRBORNE: frozenset[str] = frozenset(
+    {"taking_off", "hovering", "climbing", "descending", "cruising"}
+)
 
 # LED colours carry meaning on stage: white on wake, the direction's colour
 # on a turn, the reflex colour on land, green breathing once parked.
@@ -59,7 +63,7 @@ class DroneState:
 
 
 class DroneAdapter(Protocol):
-    """Six calls. Every implementation must return promptly from each."""
+    """A handful of calls. Every implementation must return promptly from each."""
 
     name: str
 
@@ -70,6 +74,8 @@ class DroneAdapter(Protocol):
     def hover(self) -> None: ...
 
     def move_vertical(self, dz_m: float) -> None: ...
+
+    def move_horizontal(self, forward_m: float, right_m: float) -> None: ...
 
     def set_leds(self, color: LedColor, mode: LedMode) -> None: ...
 

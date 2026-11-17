@@ -399,6 +399,8 @@ class HandsDevice(Device):
         self.fps = 0.0
         self._last_boxes: list[HandBox] = []
         self._boxes_at = 0.0
+        # Rehearsal only: the fixture crowd has no presenter, so a cue stands in.
+        self.forced_signal: str | None = None
 
     def close(self) -> None:
         if self.camera is not None:
@@ -409,8 +411,11 @@ class HandsDevice(Device):
         scene = str(body.get("scene", ""))
         if self.block is None:
             return {"scene": scene, "input": "live"}
-        self.block.set_scene(scene)
-        return {"scene": scene}
+        if "gesture" in body:
+            self.forced_signal = body["gesture"] or None
+        if scene:
+            self.block.set_scene(scene)
+        return {"scene": scene, "gesture": self.forced_signal}
 
     def capture(self) -> None:
         period = 1.0 / float(self.spec["fps"])
@@ -468,6 +473,7 @@ class HandsDevice(Device):
             up=smoothed.up,
             seen=smoothed.seen,
             share=share,
+            gesture=smoothed.gesture if self.block is None else self.forced_signal,
             seq=self.next_seq(),
         )
         return decision.to_json()

@@ -21,8 +21,8 @@ def word(value: str, t: float = NOW, conf: float = 0.81, seq: int = 1) -> Decisi
     return Decision("word", t, confidence=conf, value=value, seq=seq)
 
 
-def hands(up: int, seen: int, t: float = NOW, seq: int = 1) -> Decision:
-    return Decision("hands", t, up=up, seen=seen, share=up / seen, seq=seq)
+def hands(up: int, seen: int, t: float = NOW, seq: int = 1, gesture: str | None = None) -> Decision:
+    return Decision("hands", t, up=up, seen=seen, share=up / seen, gesture=gesture, seq=seq)
 
 
 def test_clap_wakes_a_dark_drone() -> None:
@@ -246,3 +246,45 @@ def test_reset_and_suppress_pending() -> None:
     d.observe(clap(t=NOW + 0.1, seq=3))
     d.reset()
     assert d.decide(drone("dark", 0.0), NOW + 0.1).act == "hold"
+
+
+def test_the_right_arm_signal_releases_one_step_of_the_route() -> None:
+    d = Decider()
+    d.observe(hands(1, 1, gesture="left"))
+    action = d.decide(drone(), NOW, need="left")
+    assert (action.act, action.because, action.rule) == ("go", "arms left", "route")
+    # The same signal message is one step, not a stream of them.
+    assert d.decide(drone(), NOW, need="left").act == "hold"
+
+
+def test_the_wrong_arm_signal_holds_and_says_what_the_route_wants() -> None:
+    d = Decider()
+    d.observe(hands(1, 1, gesture="right"))
+    action = d.decide(drone(), NOW, need="forward")
+    assert (action.act, action.because) == ("hold", "wants arms forward")
+    assert action.waiting
+
+
+def test_no_arm_signal_never_moves_the_drone() -> None:
+    d = Decider()
+    d.observe(hands(0, 1))
+    assert d.decide(drone(), NOW, need="forward").act == "hold"
+
+
+@pytest.mark.parametrize("phase", ["taking_off", "climbing", "cruising", "dark"])
+def test_a_signal_waits_for_a_steady_hover(phase: Phase) -> None:
+    d = Decider()
+    d.observe(hands(1, 1, gesture="forward"))
+    assert d.decide(drone(phase), NOW, need="forward").act == "hold"
+
+
+def test_the_end_of_the_route_is_a_landing() -> None:
+    action = Decider().decide(drone(), NOW, need="end")
+    assert (action.act, action.because, action.rule) == ("land", "end of route", "route")
+
+
+def test_stop_beats_the_route() -> None:
+    d = Decider()
+    d.observe(hands(1, 1, gesture="forward"))
+    d.observe(word("stop"))
+    assert d.decide(drone(), NOW, need="forward").act == "stop"

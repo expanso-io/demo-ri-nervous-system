@@ -35,7 +35,7 @@ class CoDroneEdu:
     def __init__(self, sdk: Any | None = None, *, port_name: str | None = None) -> None:
         if sdk is None:
             try:
-                from codrone_edu.drone import Drone  # type: ignore[import-not-found]
+                from codrone_edu.drone import Drone
             except ImportError as error:
                 raise RuntimeError(
                     "CoDrone EDU SDK missing: uv pip install codrone-edu on the presenter laptop"
@@ -84,7 +84,7 @@ class CoDroneEdu:
         def run() -> None:
             self._drone.hover(0.5)
             with self._lock:
-                if self._phase in ("climbing", "descending", "taking_off"):
+                if self._phase in ("climbing", "descending", "taking_off", "cruising"):
                     self._phase = "hovering"
 
         self._worker.submit("hover", run)
@@ -109,6 +109,33 @@ class CoDroneEdu:
                     self._phase = "hovering"
 
         self._worker.submit("move_vertical", run)
+
+    def move_horizontal(self, forward_m: float, right_m: float) -> None:
+        with self._lock:
+            if self._phase != "hovering":
+                return
+            self._phase = "cruising"
+
+        def run() -> None:
+            # CONFIRM on the airframe: distances are the SDK's own estimate.
+            if forward_m:
+                cm = round(abs(forward_m) * 100)
+                if forward_m > 0:
+                    self._drone.move_forward(cm, "cm", 0.5)
+                else:
+                    self._drone.move_backward(cm, "cm", 0.5)
+            if right_m:
+                cm = round(abs(right_m) * 100)
+                if right_m > 0:
+                    self._drone.move_right(cm, "cm", 0.5)
+                else:
+                    self._drone.move_left(cm, "cm", 0.5)
+            self._drone.hover(0.3)
+            with self._lock:
+                if self._phase == "cruising":
+                    self._phase = "hovering"
+
+        self._worker.submit("move_horizontal", run)
 
     def set_leds(self, color: LedColor, mode: LedMode) -> None:
         self._leds = Leds(color, mode)
