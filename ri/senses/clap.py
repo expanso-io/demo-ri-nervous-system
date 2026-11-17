@@ -94,6 +94,28 @@ def onset_strength(audio: Array) -> tuple[bool, float]:
     return gate, best
 
 
+def onset_times(audio: Array, sr: int = 16000) -> list[float]:
+    """When each sharp transient in `audio` peaks, in seconds from its start.
+
+    The same test as `onset_strength`, but it keeps every hit, so a run of
+    claps can be counted one by one.
+    """
+    n = len(audio) // FRAME
+    if n < 30:
+        return []
+    energy = (audio[: n * FRAME].reshape(n, FRAME) ** 2).mean(axis=1) + 1e-10
+    hits: list[float] = []
+    for i in range(22, n):
+        before = float(np.median(energy[i - 22 : i - 2]))
+        if energy[i] / before < ONSET_RATIO or energy[i] < energy[max(0, i - 1) : i + 2].max():
+            continue
+        floor = energy[i] * 0.1
+        rise = next((k for k in range(0, 12) if i - k - 1 < 0 or energy[i - k - 1] < floor), 12)
+        if rise <= ONSET_RISE_FRAMES:
+            hits.append(i * FRAME / sr)
+    return hits
+
+
 def extract_clap_features(
     audio: Array,
     scores: Array,

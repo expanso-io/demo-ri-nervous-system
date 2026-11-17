@@ -342,9 +342,15 @@ class AudioDevice(Device):
 class ClapDevice(AudioDevice):
     MIN_CONFIDENCE = 0.5
     REFRACTORY_S = 3.5  # one round of applause is one clap
+    # On a live mic one bang is not a wake: a door, a dropped cup and the
+    # drone's own landing all pass for a single clap. Five in a row do not.
+    CLAPS_NEEDED = 5
+    CLAPS_WITHIN_S = 3.0
+    SAME_CLAP_S = 0.12  # one clap is heard again in each overlapping window
 
     def __init__(self, *, input_mode: str = "fixture", device_spec: str | None = None) -> None:
         super().__init__("clap", input_mode=input_mode, device_spec=device_spec)
+        self.claps: deque[float] = deque()
         from ri.senses.clap import ClapDetector
 
         self.model = ClapDetector()
@@ -357,11 +363,26 @@ class ClapDevice(AudioDevice):
             self.windows += 1
             windows = self.windows
         fresh = now - self.last_emit.get("clap", 0.0) > self.REFRACTORY_S
-        if score.triggered(self.MIN_CONFIDENCE) and fresh:
+        enough = self.input_mode != "live" or self.count_claps(window, now) >= self.CLAPS_NEEDED
+        if score.triggered(self.MIN_CONFIDENCE) and fresh and enough:
             self.last_emit["clap"] = now
+            self.claps.clear()
             decision = Decision("clap", now, confidence=score.confidence, seq=self.next_seq())
             return decision.to_json()
         return {"sense": None, "window": windows, "heard": round(score.confidence, 2)}
+
+    def count_claps(self, window: Array, now: float) -> int:
+        """How many separate claps the last few seconds held, this window included."""
+        from ri.senses.clap import onset_times
+
+        start = now - len(window) / SR
+        for offset in onset_times(window, SR):
+            at = start + offset
+            if all(abs(at - seen) > self.SAME_CLAP_S for seen in self.claps):
+                self.claps.append(at)
+        while self.claps and now - min(self.claps) > self.CLAPS_WITHIN_S:
+            self.claps.remove(min(self.claps))
+        return len(self.claps)
 
 
 class WordDevice(AudioDevice):

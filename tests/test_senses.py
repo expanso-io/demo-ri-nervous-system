@@ -275,3 +275,36 @@ def test_a_forced_decision_is_what_the_model_would_have_sent() -> None:
     assert parse_decision(forced_decision("clap", "clap", 9).to_json()).sense == "clap"
     with pytest.raises(ValueError, match="cannot force"):
         forced_decision("word", "left", 1)
+
+
+def _clapping(at_s: list[float], seconds: float) -> Array:
+    rng = np.random.default_rng(3)
+    audio = rng.normal(0, 0.002, int(seconds * SR)).astype(np.float32)
+    burst = (rng.normal(0, 0.4, 400) * np.exp(-np.arange(400) / 80)).astype(np.float32)
+    for t in at_s:
+        audio[int(t * SR) : int(t * SR) + 400] += burst
+    return audio
+
+
+def _most_claps_counted(audio: Array) -> int:
+    from ri.device import ClapDevice
+
+    device = ClapDevice.__new__(ClapDevice)
+    device.claps = deque()
+    most = 0
+    # The pipeline hands over one-second windows, a quarter second apart.
+    for end in range(SR, len(audio) + 1, SR // 4):
+        most = max(most, device.count_claps(audio[end - SR : end], 100.0 + end / SR))
+    return most
+
+
+def test_five_claps_in_a_row_are_counted_as_five() -> None:
+    assert _most_claps_counted(_clapping([1.0, 1.4, 1.8, 2.2, 2.6], 4.0)) == 5
+
+
+def test_one_bang_is_one_clap_however_many_windows_hear_it() -> None:
+    assert _most_claps_counted(_clapping([1.5], 4.0)) == 1
+
+
+def test_claps_too_far_apart_never_add_up_to_five() -> None:
+    assert _most_claps_counted(_clapping([1.0, 2.6, 4.2, 5.8, 7.4], 9.0)) < 5
