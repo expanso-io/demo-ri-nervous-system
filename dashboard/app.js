@@ -259,7 +259,7 @@ function syncLayout() {
     groundY: air.bottom,
     travel: Math.max(36, air.height - quad.height),
     decideTop: decide.top,
-    decideX: decide.left + 90,
+    decideX: decide.left + decide.width - 48,
   };
 
   const trailW = Math.round(sky.w * dpr);
@@ -1298,6 +1298,36 @@ function toggleCollection() {
 }
 
 $("btn-pipelines").addEventListener("click", toggleCollection);
+
+$("btn-reset").addEventListener("click", async () => {
+  const btn = $("btn-reset");
+  let refusal = "";
+
+  try {
+    const resp = await fetch("/api/reset-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+
+    if (!resp.ok) refusal = (await resp.json()).error ?? "reset refused";
+  } catch {
+    refusal = "screen unreachable";
+  }
+
+  if (!refusal) {
+    flight.tau = 0;
+    flight.step = 0;
+    flight.pts.length = 0;
+    flight.marks.length = 0;
+    flight.markKey = null;
+    flight.markT = -Infinity;
+    ui.lastRealAct = null;
+  }
+
+  btn.textContent = refusal || "reset done";
+  btn.dataset.refused = String(Boolean(refusal));
+  setTimeout(() => {
+    btn.textContent = "reset";
+    btn.dataset.refused = "false";
+  }, 4000);
+});
 
 $("collect-switch").addEventListener("click", toggleCollection);
 

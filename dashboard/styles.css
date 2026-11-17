@@ -738,3 +738,8 @@ body[data-beat="handoff"] .handoff { opacity: 1; pointer-events: auto; }
 .collect[aria-checked="true"] .collect-knob { transform: translateX(22px); }
 .collect[data-pending="true"] .collect-track { background: var(--warn); }
 .collect:focus-visible { outline: 2px solid var(--text); outline-offset: 4px; border-radius: 4px; }
+
+/* Reset: there when the presenter looks for it, invisible to the room. */
+.reset-btn { position: absolute; right: 32px; bottom: 2px; z-index: 30; padding: 0 6px; border: 0; background: none; font: inherit; font-size: 13px; line-height: 18px; letter-spacing: .08em; color: var(--text-dim); opacity: .45; cursor: pointer; }
+.reset-btn:hover, .reset-btn:focus-visible { opacity: 1; text-decoration: underline; }
+.reset-btn[data-refused="true"] { opacity: 1; color: var(--err); }

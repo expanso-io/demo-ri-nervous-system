@@ -153,7 +153,7 @@
   </div>
 
   <div class="col col-decide">
-    <div class="col-label"><b>decide</b> highest wins</div>
+    <div class="col-label"><b>decide</b> when two disagree, the higher rule wins</div>
 
     <section class="node decide" id="node-fly-drone" data-node="fly-drone" data-cast="edge" data-live="off" data-state="off">
       <div class="node-head">
@@ -188,7 +188,9 @@
   </section>
 </main>
 
-<section class="handoff" id="handoff" aria-hidden="true">
+<button type="button" class="reset-btn" id="btn-reset" title="Back to the start: clears the trace, the counts and the route. Refused while the drone is in the air.">reset</button>
+
+  <section class="handoff" id="handoff" aria-hidden="true">
   <p class="line">Three devices, three senses, one job.</p>
   <p class="sub">Nothing left the room but decisions.</p>
 </section>
