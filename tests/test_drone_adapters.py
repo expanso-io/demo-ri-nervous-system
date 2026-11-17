@@ -42,7 +42,7 @@ class FakeCoDroneSDK:
         # A real airframe climbs faster than any timer assumes.
         self.height_m += self.throttle / 100 * seconds * 5
 
-    def sendControlPosition(  # noqa: N802 - the SDK's own name
+    def sendControlPosition(
         self, x: float, y: float, z: float, speed: float, heading: int, turn: int
     ) -> None:
         # The airframe is sent the move a few times over; it flies it once.
