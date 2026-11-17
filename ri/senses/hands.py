@@ -117,7 +117,9 @@ def filter_people(
 
 
 def hands_up(keypoints: Array, *, margin_ratio: float = 0.0) -> int:
-    """Raised hands among people, one vote per person.
+    """Raised hands in view: every wrist above its owner's shoulders is one hand.
+
+    Two hands in the air count twice, so ten people can raise twenty.
 
     keypoints: (people, 17, 3) array of x, y, confidence in image pixels.
     """
@@ -130,8 +132,7 @@ def hands_up(keypoints: Array, *, margin_ratio: float = 0.0) -> int:
         shoulder_line = min(float(s[1]) for s in shoulders)
         span = abs(float(shoulders[0][0]) - float(shoulders[1][0])) if len(shoulders) == 2 else 0.0
         threshold = shoulder_line - margin_ratio * span
-        if min(float(w[1]) for w in wrists) < threshold:
-            votes += 1
+        votes += sum(1 for w in wrists if float(w[1]) < threshold)
     return votes
 
 

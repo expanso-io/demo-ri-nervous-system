@@ -103,7 +103,8 @@ def person(shoulder_y: float, wrist_y: float) -> Array:
 
 def test_a_hand_is_up_when_a_wrist_is_above_the_shoulder_line() -> None:
     block = np.stack([person(200, 120), person(200, 300), person(200, 199)])
-    assert hands_up(block) == 2
+    # Each raised wrist is a hand: two people with both hands up are four.
+    assert hands_up(block) == 4
 
 
 def test_unseen_wrists_do_not_vote() -> None:

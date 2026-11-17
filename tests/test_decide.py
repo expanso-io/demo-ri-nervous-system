@@ -64,25 +64,27 @@ def test_up_and_down_move_one_step() -> None:
 def test_envelope_ceiling_and_floor_hold() -> None:
     d = Decider()
     d.observe(word("up"))
-    action = d.decide(drone(target=2.0), NOW)
+    action = d.decide(drone(target=1.5), NOW)
     assert (action.act, action.because) == ("hold", "ceiling reached")
     d.observe(word("down", seq=2))
-    assert d.decide(drone(target=1.0), NOW).because == "lowest safe height"
+    assert d.decide(drone(target=0.5), NOW).because == "lowest safe height"
 
 
-def test_up_wakes_a_sleeping_drone() -> None:
+def test_a_word_never_wakes_a_sleeping_drone() -> None:
     d = Decider()
     d.observe(word("up"))
     action = d.decide(drone("dark", 0.0), NOW)
-    assert (action.act, action.because, action.rule) == ("wake", "word up", "wake")
-    assert d.decide(drone("dark", 0.0), NOW).act == "hold"
+    assert (action.act, action.because) == ("hold", "asleep: clap to wake")
 
 
-def test_other_words_do_nothing_while_asleep() -> None:
+def test_five_ups_take_the_drone_from_the_wake_height_to_one_metre() -> None:
     d = Decider()
-    d.observe(word("down"))
-    action = d.decide(drone("dark", 0.0), NOW)
-    assert (action.act, action.because) == ("hold", "asleep: say up to wake")
+    height = 0.5
+    for i in range(5):
+        d.observe(word("up", t=NOW + i, seq=i + 1))
+        assert d.decide(drone(target=height), NOW + i).act == "up"
+        height = round(height + 0.1, 2)
+    assert height == 1.0
 
 
 def test_stop_beats_move() -> None:
@@ -105,50 +107,44 @@ def test_future_timestamps_are_not_fresh() -> None:
     assert d.decide(drone(), NOW).act == "hold"
 
 
-def test_majority_of_hands_lands() -> None:
+def test_twenty_hands_land_the_drone() -> None:
     d = Decider()
-    d.observe(hands(37, 60))
+    d.observe(hands(20, 14))
     action = d.decide(drone(), NOW)
-    assert (action.act, action.because) == ("land", "hands 0.62")
+    assert (action.act, action.because, action.rule) == ("land", "20 hands", "land")
 
 
-def test_below_majority_waits() -> None:
+def test_fewer_than_twenty_hands_waits_and_says_how_many() -> None:
     d = Decider()
-    d.observe(hands(18, 60))
+    d.observe(hands(19, 14))
     action = d.decide(drone(), NOW)
     assert action.act == "hold"
     assert action.waiting
-    assert action.because == "waiting: 18 of 60"
+    assert action.because == "waiting: 19 of 20 hands"
 
 
-def test_exactly_half_does_not_land() -> None:
+def test_a_marshal_waving_is_not_a_vote_to_land() -> None:
     d = Decider()
-    d.observe(hands(30, 60))
-    assert d.decide(drone(), NOW).act == "hold"
-
-
-def test_too_few_people_seen_cannot_land() -> None:
-    d = Decider()
-    d.observe(hands(8, 9))
-    action = d.decide(drone(), NOW)
-    assert (action.act, action.because) == ("hold", "waiting: 9 seen")
+    d.observe(hands(2, 1, gesture="left"))
+    action = d.decide(drone(), NOW, need="end")
+    assert (action.act, action.waiting) == ("hold", False)
 
 
 def test_conflict_landing_wins_and_the_word_loses() -> None:
     d = Decider()
-    d.observe(hands(43, 60))
+    d.observe(hands(24, 30))
     d.observe(word("up", conf=0.77))
     action = d.decide(drone(target=1.5), NOW)
     assert action.act == "land"
-    assert action.because == "hands 0.72 > word up"
-    assert action.inputs == ("hands 72%", "up 0.77")
+    assert action.because == "24 hands > word up"
+    assert action.inputs == ("24 hands", "up 0.77")
     # the shout was heard and lost: it is not replayed once the hands drop
     d.observe(hands(5, 60, t=NOW + 0.5, seq=2))
     assert d.decide(drone(target=1.5), NOW + 0.5).act == "hold"
 
 
 def test_conflict_is_deterministic_regardless_of_arrival_order() -> None:
-    for order in ((hands(43, 60), word("up")), (word("up"), hands(43, 60))):
+    for order in ((hands(24, 30), word("up")), (word("up"), hands(24, 30))):
         d = Decider()
         for decision in order:
             d.observe(decision)
@@ -188,20 +184,20 @@ def test_parse_round_trip_and_rejects() -> None:
 
 def test_a_shout_during_the_descent_still_loses_to_the_hands() -> None:
     d = Decider()
-    d.observe(hands(43, 60))
+    d.observe(hands(24, 30))
     assert d.decide(drone(target=1.5), NOW).act == "land"
     d.observe(word("up", t=NOW + 0.4))
     action = d.decide(drone("landing", 0.9), NOW + 0.4)
-    assert (action.act, action.because) == ("land", "hands 0.72 > word up")
+    assert (action.act, action.because) == ("land", "24 hands > word up")
 
 
 def test_the_land_names_a_word_acted_on_a_moment_before() -> None:
     d = Decider()
     d.observe(word("up"))
     assert d.decide(drone(), NOW).act == "up"
-    d.observe(hands(43, 60, t=NOW + 0.6))
+    d.observe(hands(24, 30, t=NOW + 0.6))
     action = d.decide(drone("climbing", 1.2), NOW + 0.6)
-    assert action.because == "hands 0.72 > word up"
+    assert action.because == "24 hands > word up"
 
 
 def test_a_word_while_landing_without_a_majority_is_ignored() -> None:
@@ -232,7 +228,7 @@ def test_stop_and_land_still_preempt_non_hovering_flight(phase: Phase) -> None:
     d.observe(word("stop", seq=1))
     assert d.decide(drone(phase, 1.2), NOW).act == "stop"
 
-    d.observe(hands(14, 18, t=NOW + 0.2, seq=2))
+    d.observe(hands(21, 18, t=NOW + 0.2, seq=2))
     assert d.decide(drone(phase, 1.2), NOW + 0.2).act == "land"
 
 
@@ -278,9 +274,18 @@ def test_a_signal_waits_for_a_steady_hover(phase: Phase) -> None:
     assert d.decide(drone(phase), NOW, need="forward").act == "hold"
 
 
-def test_the_end_of_the_route_is_a_landing() -> None:
-    action = Decider().decide(drone(), NOW, need="end")
-    assert (action.act, action.because, action.rule) == ("land", "end of route", "route")
+def test_once_the_route_is_flown_no_wave_moves_the_drone() -> None:
+    d = Decider()
+    for seq, shown in enumerate(("left", "right", "forward"), start=1):
+        d.observe(hands(1, 1, t=NOW + seq, seq=seq, gesture=shown))
+        assert d.decide(drone(), NOW + seq, need="end").act == "hold"
+
+
+def test_the_end_of_the_route_waits_for_the_room() -> None:
+    d = Decider()
+    assert d.decide(drone(), NOW, need="end").act == "hold"
+    d.observe(hands(22, 15))
+    assert d.decide(drone(), NOW, need="end").act == "land"
 
 
 def test_stop_beats_the_route() -> None:

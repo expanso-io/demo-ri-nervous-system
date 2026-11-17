@@ -32,7 +32,9 @@ GROUND_M = 0.15
 # A height step flies on the measured height, never on a timer.
 CLIMB_THROTTLE = 30
 CLIMB_SLICE_S = 0.1
-LOWEST_M = 0.5
+LOWEST_M = 0.3
+# The slowest the airframe's own position moves go, in metres a second.
+ROUTE_SPEED = 0.5
 
 RGB: dict[str, tuple[int, int, int]] = {
     "off": (0, 0, 0),
@@ -87,8 +89,13 @@ class CoDroneEdu:
         self._set_phase("taking_off")
 
         def run() -> None:
+            self._abort.clear()
             self._drone.takeoff()
-            self._set_phase("hovering")
+            # The airframe picks its own take-off height; bring it to ours.
+            self._fly_to(self._target)
+            with self._lock:
+                if self._phase == "taking_off":
+                    self._phase = "hovering"
 
         self._worker.submit("take_off", run)
 
@@ -165,7 +172,8 @@ class CoDroneEdu:
             self._phase = "climbing" if delta > 0 else "descending"
 
         def run() -> None:
-            self._step_height(delta)
+            self._abort.clear()
+            self._fly_to(new_target)
             with self._lock:
                 if self._phase in ("climbing", "descending"):
                     self._phase = "hovering"
@@ -179,8 +187,8 @@ class CoDroneEdu:
             log.debug("height read failed", exc_info=True)
             return None
 
-    def _step_height(self, delta: float) -> None:
-        """Climb or sink by `delta` on the measured height, under a hard ceiling.
+    def _fly_to(self, goal_m: float) -> None:
+        """Climb or sink to `goal_m` on the measured height, under a hard ceiling.
 
         A timed burst of throttle has no idea how far the drone went; on the
         airframe it went far past the step. So the throttle stays on only
@@ -188,27 +196,26 @@ class CoDroneEdu:
         """
         start = self._height()
         if start is None:
-            log.warning("no height reading: height step skipped")
+            log.warning("no height reading: height move skipped")
             return
-        ceiling, floor = min(start + delta, MAX_ALTITUDE_M), max(start + delta, LOWEST_M)
-        goal = ceiling if delta > 0 else floor
-        if abs(goal - start) < 0.05:
-            log.info("height step skipped at %.2f m: at the limit", start)
+        goal = max(LOWEST_M, min(MAX_ALTITUDE_M, goal_m))
+        if abs(goal - start) < 0.04:
+            log.info("already at %.2f m (goal %.2f)", start, goal)
             return
-        self._abort.clear()
-        deadline = time.monotonic() + abs(delta) * 6 + 1.0
+        up = goal > start
+        deadline = time.monotonic() + abs(goal - start) * 6 + 1.0
         height: float | None = start
-        self._drone.set_throttle(CLIMB_THROTTLE if delta > 0 else -CLIMB_THROTTLE)
+        self._drone.set_throttle(CLIMB_THROTTLE if up else -CLIMB_THROTTLE)
         try:
             while time.monotonic() < deadline and not self._abort.is_set():
                 self._drone.move(CLIMB_SLICE_S)
                 height = self._height()
-                if height is None or (height >= goal if delta > 0 else height <= goal):
+                if height is None or (height >= goal if up else height <= goal):
                     break
         finally:
             self._drone.set_throttle(0)
             self._drone.hover(0.3)
-        log.info("height step %.2f -> %s m (goal %.2f)", start, height, goal)
+        log.info("height %.2f -> %s m (goal %.2f)", start, height, goal)
 
     def move_horizontal(self, forward_m: float, right_m: float) -> None:
         with self._lock:
@@ -217,19 +224,10 @@ class CoDroneEdu:
             self._phase = "cruising"
 
         def run() -> None:
-            # CONFIRM on the airframe: distances are the SDK's own estimate.
-            if forward_m:
-                cm = round(abs(forward_m) * 100)
-                if forward_m > 0:
-                    self._drone.move_forward(cm, "cm", 0.5)
-                else:
-                    self._drone.move_backward(cm, "cm", 0.5)
-            if right_m:
-                cm = round(abs(right_m) * 100)
-                if right_m > 0:
-                    self._drone.move_right(cm, "cm", 0.5)
-                else:
-                    self._drone.move_left(cm, "cm", 0.5)
+            # One straight line, diagonal when the leg is: the airframe's own
+            # position move, ahead positive and left positive, at its slowest.
+            # CONFIRM on the airframe: the distance is the SDK's own estimate.
+            self._drone.move_distance(forward_m, -right_m, 0, ROUTE_SPEED)
             self._drone.hover(0.3)
             with self._lock:
                 if self._phase == "cruising":

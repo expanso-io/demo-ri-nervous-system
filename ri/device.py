@@ -98,7 +98,7 @@ def pink(n: int, rng: np.random.Generator) -> Array:
 FORCEABLE: dict[str, tuple[str, ...]] = {
     "clap": ("clap",),
     "word": ("up", "down", "stop"),
-    "hands": ("forward", "left", "right"),
+    "hands": ("forward", "left", "right", "crowd"),
 }
 
 
@@ -116,6 +116,8 @@ def forced_decision(sense: str, value: str, seq: int) -> Decision:
         return Decision("clap", now, confidence=0.99, seq=seq)
     if sense == "word":
         return Decision("word", now, confidence=0.99, value=value, seq=seq)
+    if value == "crowd":
+        return Decision("hands", now, up=24, seen=28, share=24 / 28, seq=seq)
     return Decision("hands", now, up=1, seen=1, share=1.0, gesture=value, seq=seq)
 
 

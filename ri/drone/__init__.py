@@ -23,9 +23,10 @@ AIRBORNE: frozenset[str] = frozenset(
 LedColor = Literal["off", "white", "blue", "amber", "red", "green"]
 LedMode = Literal["off", "solid", "breathing"]
 
-WAKE_ALTITUDE_M = 1.0
-MAX_ALTITUDE_M = 1.8
-STEP_M = 0.2
+# A clap lifts the drone to 0.5 m; each up is 0.1 m; 1.5 m clears the ceiling.
+WAKE_ALTITUDE_M = 0.5
+MAX_ALTITUDE_M = 1.5
+STEP_M = 0.1
 
 
 def clamp_altitude(altitude_m: float) -> float:

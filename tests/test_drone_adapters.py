@@ -12,8 +12,11 @@ from ri.drone.tello import TelloDrone
 
 
 class FakeCoDroneSDK:
-    def __init__(self, *, height_m: float = 1.0, battery: int = 85) -> None:
+    def __init__(
+        self, *, height_m: float = 1.0, battery: int = 85, lands_to: float | None = None
+    ) -> None:
         self.height_m = height_m
+        self.lands_to = lands_to
         self.battery = battery
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.fail_telemetry = False
@@ -24,6 +27,8 @@ class FakeCoDroneSDK:
 
     def land(self) -> None:
         self.calls.append(("land", ()))
+        if self.lands_to is not None:
+            self.height_m = self.lands_to
 
     def hover(self, seconds: float) -> None:
         self.calls.append(("hover", (seconds,)))
@@ -36,6 +41,9 @@ class FakeCoDroneSDK:
         self.calls.append(("move", (seconds,)))
         # A real airframe climbs faster than any timer assumes.
         self.height_m += self.throttle / 100 * seconds * 5
+
+    def move_distance(self, x: float, y: float, z: float, speed: float) -> None:
+        self.calls.append(("move_distance", (x, y, z, speed)))
 
     def set_drone_LED(self, r: int, g: int, b: int, brightness: int) -> None:
         self.calls.append(("set_drone_LED", (r, g, b, brightness)))
@@ -177,8 +185,32 @@ def test_sim_drone_emergency_and_battery() -> None:
     assert st.target_m == 0.0
 
 
+def test_codrone_settles_to_the_wake_height_and_flies_a_leg_as_one_diagonal() -> None:
+    from ri.route import MOVE
+
+    # The airframe takes off to its own height; the rig brings it down to ours.
+    sdk = FakeCoDroneSDK(height_m=0.9)
+    drone = CoDroneEdu(sdk=sdk)
+    try:
+        drone.take_off(WAKE_ALTITUDE_M)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        assert WAKE_ALTITUDE_M - 0.2 < drone.state().altitude_m <= WAKE_ALTITUDE_M
+        drone.move_vertical(0.1)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        assert drone.state().target_m == pytest.approx(WAKE_ALTITUDE_M + 0.1)
+
+        drone.move_horizontal(*MOVE["left"])
+        _wait_until(lambda: any(name == "move_distance" for name, _ in sdk.calls))
+        ahead, left, up, speed = next(a for name, a in sdk.calls if name == "move_distance")
+        assert (ahead, left) == pytest.approx((0.7071, 0.7071), abs=1e-4)
+        assert ahead**2 + left**2 == pytest.approx(1.0)
+        assert (up, speed) == (0, 0.5)
+    finally:
+        drone.close()
+
+
 def test_codrone_cuts_its_motors_only_once_it_is_on_the_ground() -> None:
-    grounded = FakeCoDroneSDK(height_m=0.05)
+    grounded = FakeCoDroneSDK(height_m=0.05, lands_to=0.05)
     drone = CoDroneEdu(sdk=grounded, settle_s=0.3)
     try:
         drone.take_off(1.0)

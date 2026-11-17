@@ -7,6 +7,7 @@ build tool and never named on an audience-facing surface.
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -82,7 +83,7 @@ class SimDrone:
             self._advance()
             if self._phase != "hovering":
                 return
-            distance = abs(forward_m) + abs(right_m)
+            distance = math.hypot(forward_m, right_m)
             self._cruise_until = self._clock() + distance / CRUISE_M_PER_S
             self._phase = "cruising"
 

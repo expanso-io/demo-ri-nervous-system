@@ -137,6 +137,11 @@ const TRAIL_LABEL = { wake: "wake", up: "up", down: "down", stop: "stop", land: 
 const AIRBORNE = ["taking_off", "hovering", "climbing", "descending", "cruising", "landing"];
 
 /* What the presenter does with their arms for each signal the route asks for. */
+// The room lands the drone with this many hands in the air at once.
+const LAND_HANDS = 20;
+
+const WAIT_HANDS = 3;
+
 const ARMS_HINT = { forward: "wave it ahead", left: "wave it left", right: "wave it right" };
 
 const LEG_LABEL = { forward: "ahead", left: "left", right: "right" };
@@ -706,7 +711,7 @@ function label(sense, m) {
 
   if (m.gesture) return `wave ${m.gesture}`;
 
-  return `${m.up ?? 0} of ${m.seen ?? 0} hands`;
+  return `${m.up ?? 0} hands`;
 }
 
 const PHASE = {
@@ -796,15 +801,13 @@ function renderSenses(now) {
 
   if (handsLive) {
     const up = mHands.up ?? 0;
-    const seen = mHands.seen ?? 0;
-    const share = mHands.share ?? 0;
-    const pct = Math.max(0, Math.min(100, Math.round(share * 100)));
-    const majority = seen >= 10 && share > 0.5;
-    const waiting = !majority && seen >= 10 && share >= 0.2;
+    const pct = Math.max(0, Math.min(100, Math.round((up / LAND_HANDS) * 100)));
+    const majority = up >= LAND_HANDS;
+    const waiting = !majority && !mHands.gesture && up >= WAIT_HANDS;
     voteFill.style.width = `${pct}%`;
     voteFill.classList.toggle("majority", majority);
     voteFill.classList.toggle("waiting", waiting);
-    tally.textContent = `${up} of ${seen}`;
+    tally.textContent = `${up} of ${LAND_HANDS}`;
     tally.classList.toggle("majority", majority);
     tally.classList.toggle("waiting", waiting);
   } else {
@@ -851,9 +854,9 @@ function render(now) {
     slot.classList.toggle("fresh", sense !== "hands" && a < FRESH_S);
 
     if (sense === "hands") {
-      const quorum = Boolean(m && n.live && m.seen >= 10);
-      slot.classList.toggle("majority", quorum && m.share > 0.5);
-      slot.classList.toggle("waiting", quorum && m.share >= 0.2 && m.share <= 0.5);
+      const counting = Boolean(m && n.live && !m.gesture);
+      slot.classList.toggle("majority", counting && m.up >= LAND_HANDS);
+      slot.classList.toggle("waiting", counting && m.up >= WAIT_HANDS && m.up < LAND_HANDS);
     }
   }
 
@@ -902,7 +905,7 @@ function renderFocus(now) {
   for (const sense of Object.keys(NODE_OF)) {
     const m = state.latest[sense];
     const live = state.nodes[NODE_OF[sense]].live;
-    const voting = Boolean(m && ((m.seen >= 10 && m.share >= 0.2) || m.gesture));
+    const voting = Boolean(m && (m.up >= WAIT_HANDS || m.gesture));
     const busy = sense === "hands" ? voting && age(m, now) < ACT_STICKY_S : age(m, now) < ACT_STICKY_S;
 
     if (live && busy) focus.add(sense);
@@ -1180,10 +1183,10 @@ function apply(snapshot) {
           // The camera reports several times a second. A routine count is a
           // small impulse; a count that could land the drone is a full one.
           const hands = snapshot.latest?.hands;
-          const loud = sense !== "hands" || (hands?.seen >= 10 && hands?.share >= 0.2);
+          const loud = sense !== "hands" || hands?.up >= WAIT_HANDS;
           spawn(`imp-${sense}`, {
             speed: 1.05,
-            color: sense === "hands" && hands?.share > 0.5 ? COLORS.err : COLORS.ember,
+            color: sense === "hands" && hands?.up >= LAND_HANDS ? COLORS.err : COLORS.ember,
             size: loud ? 8 : 4,
             alpha: loud ? 0.95 : 0.7,
             trail: true,
@@ -1386,6 +1389,7 @@ const FORCE_KEYS = {
   w: ["hands", "forward"],
   a: ["hands", "left"],
   d: ["hands", "right"],
+  h: ["hands", "crowd"],
 };
 
 document.addEventListener("keydown", (event) => {

@@ -106,3 +106,21 @@ never committed.
 
 [`recordings/README.md`](recordings/README.md) has the one-command take and
 how it is checked.
+
+## Run of show
+
+The flight is fixed. The room only releases each part of it.
+
+1. Clap. The drone lifts to 0.5 m. Key: `C`.
+2. Say "up" five times. Each one is 0.1 m, to 1.0 m. The hard ceiling is
+   1.5 m, on the measured height. Key: up arrow.
+3. Wave it left. One metre, 45 degrees ahead and to the left, then it
+   stops. More waves do nothing. Key: `A`.
+4. Wave it right. One metre, 45 degrees ahead and to the right, then it
+   stops over the pad. More waves do nothing. Key: `D`.
+5. The room raises hands. The board counts them toward 20. At 20 the
+   drone lands and its motors stop. Key: `H`.
+
+`Esc` lands it at any point and holds it for 10 seconds. The reset button
+does the same and clears the board. The numbers live in `ri/drone/__init__.py`
+(heights), `ri/route.py` (legs) and `ri/decide.py` (`LAND_HANDS`).

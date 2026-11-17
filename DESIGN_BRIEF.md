@@ -44,7 +44,7 @@ the room is working on. Two tiers:
    session: every climb and landing, with one mark for each thing the room did
    (`wake`, `up`, `down`, `stop`, `hands up`). Beside it, the phase as one
    large word, the altitude, and the one reason for the last act in plain
-   words (`hands 83% beats word up`). Asleep, it reads `say up to wake it`.
+   words (`24 hands beats word up`). Asleep, it reads `clap to wake`.
 2. The nervous system, underneath, read left to right and then up: `sense`,
    `model`, `decide`. Rows are in priority order on both sides (camera and
    `see-hands` on top, clap at the bottom), so no lane crosses another and

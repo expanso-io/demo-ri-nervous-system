@@ -8,33 +8,24 @@ holds where it is.
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 Gesture = Literal["forward", "left", "right"]
 GESTURES: tuple[Gesture, ...] = ("forward", "left", "right")
 
-ROUTE_STEP_M = 0.25
-# Ahead, a jog to the left, ahead, back onto the centre line, ahead.
-ROUTE: tuple[Gesture, ...] = (
-    "forward",
-    "forward",
-    "forward",
-    "left",
-    "left",
-    "forward",
-    "forward",
-    "right",
-    "right",
-    "forward",
-    "forward",
-)
+ROUTE_LEG_M = 1.0
+_DIAGONAL = ROUTE_LEG_M * math.sqrt(0.5)
+# Two legs, each one metre at 45 degrees: ahead and to the left, then ahead
+# and to the right, which puts the drone over the landing pad.
+ROUTE: tuple[Gesture, ...] = ("left", "right")
 END = "end"
 
-# (metres ahead, metres to the right) for one step of each signal.
+# (metres ahead, metres to the right) for the leg each signal releases.
 MOVE: dict[Gesture, tuple[float, float]] = {
-    "forward": (ROUTE_STEP_M, 0.0),
-    "left": (0.0, -ROUTE_STEP_M),
-    "right": (0.0, ROUTE_STEP_M),
+    "forward": (ROUTE_LEG_M, 0.0),
+    "left": (_DIAGONAL, -_DIAGONAL),
+    "right": (_DIAGONAL, _DIAGONAL),
 }
 
 

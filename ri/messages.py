@@ -49,7 +49,7 @@ class Decision:
             return f"{self.value} {self.confidence:.2f}"
         if self.gesture:
             return f"wave {self.gesture}"
-        return f"hands {round(self.share * 100)}%"
+        return f"{self.up} hands"
 
     def to_json(self) -> dict[str, Any]:
         body: dict[str, Any] = {"sense": self.sense}

@@ -4,11 +4,12 @@
 
 * A decision is fresh for 3 s. A stale decision is never acted on; the drone
   holds instead. A late message cannot move the drone.
-* Land needs more than half of the voting block with at least 10 people seen.
+* Land needs 20 hands in the air at once.
 * Each word and each clap is acted on at most once.
-* The route is fixed. An arm signal releases its next step only when it is
-  the signal that step asks for; it never steers.
-* The word up wakes a sleeping drone; each further up is one step higher.
+* The route is fixed. An arm signal releases its next leg only when it is
+  the signal that leg asks for; it never steers, and once the route is flown
+  no wave moves the drone at all.
+* A clap wakes a sleeping drone; each up is one step higher.
 * When a land and a word arrive together, the land wins and the word is
   recorded as having lost. That rule is the whole safety system.
 
@@ -25,9 +26,8 @@ from ri.messages import Decision, Sense
 from ri.route import END
 
 FRESH_S = 3.0
-LAND_SHARE = 0.5
-LAND_MIN_SEEN = 10
-WAIT_SHARE = 0.2  # below this a stray raised hand is noise, not a vote
+LAND_HANDS = 20
+WAIT_HANDS = 3  # a marshal's own two arms are not a vote
 CLAP_MIN = 0.5
 WORD_MIN = 0.5
 FLOOR_M = WAKE_ALTITUDE_M
@@ -98,13 +98,13 @@ class Decider:
         hands = self.fresh("hands", now)
         word = self._pending("word", now, WORD_MIN)
         clap = self._pending("clap", now, CLAP_MIN)
-        majority = hands is not None and hands.seen >= LAND_MIN_SEEN and hands.share > LAND_SHARE
+        majority = hands is not None and hands.up >= LAND_HANDS
 
         # Rule 1, land: the safety reflex beats everything. It keeps holding
         # while the drone comes down, so a shout mid-descent still loses.
         landing = drone.phase == "landing"
         if (drone.airborne or landing) and majority and hands is not None:
-            because = f"hands {hands.share:.2f}"
+            because = f"{hands.up} hands"
             inputs = [hands.label()]
             # Name the word that lost, even one already acted on a moment ago.
             rival = word or self.fresh("word", now)
@@ -138,12 +138,12 @@ class Decider:
                 return Action("hold", "lowest safe height", "move", (word.label(),), t=now)
             return Action(act, f"word {word.value}", "move", (word.label(),), t=now)
 
-        # Rule 4, route: the next step of the fixed path, released only by the
-        # arm signal that step asks for. The end of the path is a landing.
-        if drone.phase == "hovering" and need == END:
-            return Action("land", "end of route", "route", t=now)
+        # Rule 4, route: the next leg of the fixed path, released only by the
+        # arm signal that leg asks for. Once the path is flown the drone waits
+        # over the pad for the room's hands, and no wave moves it.
         signal = hands if hands is not None and hands.key not in self.consumed else None
-        if drone.phase == "hovering" and need and signal is not None and signal.gesture:
+        flying_route = need is not None and need != END
+        if drone.phase == "hovering" and flying_route and signal is not None and signal.gesture:
             self._consume(signal)
             if signal.gesture == need:
                 return Action("go", f"wave {need}", "route", (signal.label(),), t=now)
@@ -151,12 +151,8 @@ class Decider:
                 "hold", f"wants a wave {need}", "route", (signal.label(),), waiting=True, t=now
             )
 
-        # Rule 5, wake: the word up, or a clap, brings a dark or parked drone
-        # up to hover. Every further up is one more step of height (rule 3).
+        # Rule 5, wake: a clap brings a dark or parked drone up to hover.
         grounded = not drone.airborne and drone.phase != "landing"
-        if grounded and word is not None and word.value == "up":
-            self._consume(word, clap)
-            return Action("wake", "word up", "wake", (word.label(),), t=now)
         if grounded and clap is not None:
             self._consume(clap)
             return Action("wake", "clap", "wake", (clap.label(),), t=now)
@@ -168,17 +164,9 @@ class Decider:
         self._consume(clap if drone.airborne or landing else None)
         if word is not None and not drone.airborne:
             self._consume(word)
-            return Action("hold", "asleep: say up to wake", None, (word.label(),), t=now)
-        if (
-            drone.airborne
-            and hands is not None
-            and hands.up > 0
-            and (hands.share >= WAIT_SHARE or hands.seen < LAND_MIN_SEEN)
-        ):
-            if hands.seen < LAND_MIN_SEEN:
-                why = f"waiting: {hands.seen} seen"
-            else:
-                why = f"waiting: {hands.up} of {hands.seen}"
+            return Action("hold", "asleep: clap to wake", None, (word.label(),), t=now)
+        if drone.airborne and hands is not None and not hands.gesture and hands.up >= WAIT_HANDS:
+            why = f"waiting: {hands.up} of {LAND_HANDS} hands"
             return Action("hold", why, None, (hands.label(),), waiting=True, t=now)
         stale = [s for s in ("hands",) if s in self.latest and self.fresh(s, now) is None]
         if drone.airborne and stale:
