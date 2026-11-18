@@ -26,7 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from ri import cloud
+from ri import cloud, disk
 from ri.bus import Bus
 from ri.capture import LiveCamera, list_physical_audio_inputs
 from ri.messages import PIPELINE_FOR
@@ -399,6 +399,7 @@ def main() -> int:
     bus.on(board.on_message)
     bus.start()
     threading.Thread(target=board.poll_nodes, daemon=True).start()
+    threading.Thread(target=disk.watch, daemon=True).start()
     listen = port("PORT")
     server = ThreadingHTTPServer((args.host, listen), make_handler(board))
     server.daemon_threads = True

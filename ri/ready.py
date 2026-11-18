@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ri import disk
 from ri.ports import port
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +49,9 @@ def _wrong_mic(device: dict[str, Any]) -> bool:
     return wanted not in str(device.get("mic") or "").lower()
 
 
-def judge(first: State, last: State, *, stale_code: bool, disk_free: float) -> list[Check]:
+def judge(
+    first: State, last: State, *, stale_code: bool, disk_free: float, disk_used: int = 0
+) -> list[Check]:
     """Every check, from two snapshots of the rig taken a few seconds apart."""
     checks: list[Check] = []
     nodes = last.get("nodes", {})
@@ -152,6 +155,14 @@ def judge(first: State, last: State, *, stale_code: bool, disk_free: float) -> l
             "free some space: the Edge agents throttle when the disk is nearly full",
         )
     )
+    checks.append(
+        Check(
+            "disk budget",
+            disk_used <= disk.BUDGET_BYTES,
+            f"{disk_used / disk.GB:.1f} of {disk.BUDGET_BYTES // disk.GB} GB",
+            "`just disk` shows what is large; `just disk-trim` deletes what can be rebuilt",
+        )
+    )
     return checks
 
 
@@ -179,6 +190,7 @@ def survey(url: str) -> list[Check]:
         fetch(url),
         stale_code=code_is_newer_than_rig(),
         disk_free=usage.free / usage.total,
+        disk_used=disk.footprint(),
     )
 
 

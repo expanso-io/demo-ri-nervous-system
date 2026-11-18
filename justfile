@@ -109,6 +109,14 @@ kws-train data="~/.cache/demo-ri-nervous-system/sc":
 kws-clean:
     rm -rf ~/.cache/demo-ri-nervous-system
 
+# What the demo is using on disk, against its 10 GB budget.
+disk:
+    uv run python -m ri.disk
+
+# Delete rebuildable files (tool caches, review shots, training download) if over budget.
+disk-trim:
+    uv run python -m ri.disk --trim
+
 lint:
     uv run ruff check .
     uv run ruff format --check .

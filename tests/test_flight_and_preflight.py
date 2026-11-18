@@ -448,3 +448,42 @@ def test_ready_fails_when_the_rig_fell_back_to_another_mic() -> None:
         after["devices"][name]["mic"] = "DJI Mic Mini"
     checks = {c.name: c for c in judge(before, after, stale_code=False, disk_free=0.5)}
     assert checks["mic hear-commands"].ok
+
+
+def test_disk_budget_trims_only_what_can_be_rebuilt(tmp_path: Any, monkeypatch: Any) -> None:
+    from ri import disk
+    from ri.ready import judge
+
+    keep, cache, review = tmp_path / "recordings", tmp_path / "cache", tmp_path / "review"
+    for folder in (keep, cache, review):
+        folder.mkdir()
+        (folder / "blob").write_bytes(b"x" * 400_000)
+    monkeypatch.setattr(disk, "OWNED", (tmp_path,))
+    monkeypatch.setattr(disk, "DISPOSABLE", (review, cache))
+    before = disk.footprint()
+    assert before >= 1_200_000
+    assert disk.trim(budget=before) == []
+    # One folder is enough to fit, so the costlier one is left alone.
+    assert disk.trim(budget=before - 1) == [review]
+    assert cache.exists()
+    assert disk.trim(budget=0) == [cache]
+    assert (keep / "blob").exists()
+
+    first = _rig()
+    over = judge(first, _later(first), stale_code=False, disk_free=0.5, disk_used=11 * disk.GB)
+    assert [c.name for c in over if not c.ok] == ["disk budget"]
+
+
+def test_an_oversized_log_is_cut_to_its_last_lines_under_a_live_writer(tmp_path: Any) -> None:
+    from ri import disk
+
+    path = tmp_path / "flight.log"
+    with open(path, "a") as live:
+        live.write("old\n" * 5000 + "last line\n")
+        live.flush()
+        assert disk.cap_logs(tmp_path, cap=1000, keep=200) == 1
+        live.write("after the cut\n")
+    text = path.read_text()
+    assert len(text) < 300
+    assert text.endswith("last line\nafter the cut\n")
+    assert disk.cap_logs(tmp_path, cap=1000, keep=200) == 0

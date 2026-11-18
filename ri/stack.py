@@ -24,7 +24,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from ri import cloud
+from ri import cloud, disk
 from ri.capture import resolve_camera_source
 from ri.ports import DEFAULT_CAMERA, DEFAULT_DRONE, DEFAULT_INPUT, DEFAULT_MIC, ROOT, RUNTIME, ports
 
@@ -137,7 +137,9 @@ def start(name: str, argv: list[str], env: dict[str, str]) -> None:
     if existing.exists() and alive(int(existing.read_text())):
         print(f"  {name}: already running")
         return
-    log = open(RUNTIME / f"{name}.log", "w")  # noqa: SIM115 - the child owns it
+    # Emptied, then opened for append: ri.disk can cut it short while it is written.
+    (RUNTIME / f"{name}.log").write_bytes(b"")
+    log = open(RUNTIME / f"{name}.log", "a")  # noqa: SIM115 - the child owns it
     proc = subprocess.Popen(
         argv,
         cwd=ROOT,
@@ -208,6 +210,11 @@ def screen_environment(env: dict[str, str]) -> dict[str, str]:
 
 def up(args: argparse.Namespace) -> int:
     RUNTIME.mkdir(exist_ok=True)
+    for removed in disk.trim():
+        print(f"  disk budget: removed {removed}")
+    used = disk.footprint()
+    if used > disk.BUDGET_BYTES:
+        print(f"  WARNING: {used / disk.GB:.1f} GB on disk, over the budget: just disk")
     missing = [n for n in cloud.NODES if not (ROOT / ".expanso-edge" / n / "auth").exists()]
     if missing:
         raise SystemExit(f"no node identity for {', '.join(missing)}: just workspace-init")
