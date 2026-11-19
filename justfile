@@ -15,25 +15,27 @@ cameras:
     uv run python -m ri.capture
 
 # Default live rig: CoDrone EDU + live DJI/Mac mic + the first camera in default_cam that is plugged in.
-# Override any part with parameters (for example `just up sim fixture none`).
-up drone=default_drone input="live" cam=default_cam mic=default_mic hands_input="":
-    uv run python -m ri.stack up --drone {{drone}} --input {{input}} --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input "{{ if hands_input != '' { hands_input } else { input } }}"
+# `just up small` sizes the flight for a hotel room, `just up large` for the stage;
+# with no size it keeps the last one used. Override the rest with parameters
+# (for example `just up large sim fixture none`).
+up size="" drone=default_drone input="live" cam=default_cam mic=default_mic hands_input="":
+    uv run python -m ri.stack up --room "{{size}}" --drone {{drone}} --input {{input}} --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input "{{ if hands_input != '' { hands_input } else { input } }}"
 
 # Fixture/simulator override when running without physical hardware.
 up-sim:
-    just up sim fixture none
+    just up "" sim fixture none
 
 # Live CoDrone + live OBSBOT Tiny 2 Lite camera with fixture audio cues.
 up-cam cam=default_cam drone=default_drone:
-    just up {{drone}} fixture "{{cam}}" "{{default_mic}}" live
+    just up "" {{drone}} fixture "{{cam}}" "{{default_mic}}" live
 
 # Alias for `just up` (CoDrone + OBSBOT Tiny 2 Lite + live DJI/Mac mic).
 up-live drone=default_drone cam=default_cam mic=default_mic:
-    just up {{drone}} live "{{cam}}" "{{mic}}"
+    just up "" {{drone}} live "{{cam}}" "{{mic}}"
 
 # Launch the rig AND immediately start all four Expanso Cloud pipelines.
 live drone=default_drone cam=default_cam mic=default_mic:
-    just up {{drone}} live "{{cam}}" "{{mic}}"
+    just up "" {{drone}} live "{{cam}}" "{{mic}}"
     just start
 
 # Default hardware preflight: CoDrone EDU + OBSBOT Tiny 2 Lite + DJI/Mac audio.
@@ -54,9 +56,9 @@ ready wait="0":
 
 # Fast clean restart between run-throughs: same jobs in Expanso Cloud, fresh
 # processes on the current code, then the readiness check.
-again drone=default_drone cam=default_cam mic=default_mic:
+again size="" drone=default_drone cam=default_cam mic=default_mic:
     uv run python -m ri.stack down --keep-jobs
-    uv run python -m ri.stack up --skip-deploy --drone {{drone}} --input live --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input live
+    uv run python -m ri.stack up --room "{{size}}" --skip-deploy --drone {{drone}} --input live --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input live
     just ready 45
 
 # Stop every process, free every port, delete the four Cloud jobs.

@@ -24,7 +24,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from ri import cloud, disk
+from ri import cloud, disk, room
 from ri.capture import resolve_camera_source
 from ri.ports import DEFAULT_CAMERA, DEFAULT_DRONE, DEFAULT_INPUT, DEFAULT_MIC, ROOT, RUNTIME, ports
 
@@ -43,6 +43,8 @@ def environment(args: argparse.Namespace | None = None) -> dict[str, str]:
     for name, value in resolved.items():
         env[f"RI_{name}"] = str(value)
     env.setdefault("YOLO_CONFIG_DIR", str(RUNTIME / "ultralytics"))
+    chosen = getattr(args, "room", None) or env.get("RI_ROOM") or room.remembered()
+    env["RI_ROOM"] = room.named(chosen).name
     if args is not None:
         drone = getattr(args, "drone", None) or env.get("RI_DRONE") or DEFAULT_DRONE
         input_mode = getattr(args, "input_mode", None) or env.get("RI_INPUT") or DEFAULT_INPUT
@@ -219,6 +221,8 @@ def up(args: argparse.Namespace) -> int:
     if missing:
         raise SystemExit(f"no node identity for {', '.join(missing)}: just workspace-init")
     env = environment(args)
+    room.remember(env["RI_ROOM"])
+    print(f"room {room.named(env['RI_ROOM']).summary()}")
     p = ports()
     table = dict(services())
     print("services")
@@ -369,6 +373,12 @@ def main() -> int:
         dest="input_mode",
         choices=("fixture", "live"),
         default=os.environ.get("RI_INPUT", DEFAULT_INPUT),
+    )
+    u.add_argument(
+        "--room",
+        choices=("", *room.ROOMS),
+        default="",
+        help="size the flight for the room; empty keeps the last one used",
     )
     u.add_argument("--cold", action="store_true", help="leave the four pipelines stopped")
     u.add_argument("--stage-cam", default=None)

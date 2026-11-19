@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Protocol
 
+from ri import room
+
 Phase = Literal[
     "dark", "taking_off", "hovering", "climbing", "descending", "landing", "parked", "cruising"
 ]
@@ -23,10 +25,12 @@ AIRBORNE: frozenset[str] = frozenset(
 LedColor = Literal["off", "white", "blue", "amber", "red", "green"]
 LedMode = Literal["off", "solid", "breathing"]
 
-# A clap lifts the drone to 0.5 m; each up is 0.1 m; 1.5 m clears the ceiling.
-WAKE_ALTITUDE_M = 0.5
-MAX_ALTITUDE_M = 1.5
-STEP_M = 0.1
+# Sized by the room (ri/room.py). On the stage a clap lifts the drone to
+# 0.5 m, each up is 0.1 m, and 1.5 m clears the ceiling.
+_ROOM = room.current()
+WAKE_ALTITUDE_M = _ROOM.wake_m
+MAX_ALTITUDE_M = _ROOM.ceiling_m
+STEP_M = _ROOM.step_m
 
 
 def clamp_altitude(altitude_m: float) -> float:

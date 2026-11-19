@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ri import disk
+from ri import disk, room
 from ri.ports import port
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -208,6 +208,7 @@ def main() -> int:
         if all(c.ok for c in checks) or time.monotonic() >= deadline:
             break
         time.sleep(2.0)
+    print(f"  room  {room.named(room.remembered()).summary()}")
     for c in checks:
         print(f"  {'ok  ' if c.ok else 'FAIL'}  {c.name:18} {c.detail}")
         if not c.ok and c.fix:

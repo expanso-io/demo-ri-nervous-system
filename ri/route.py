@@ -11,12 +11,14 @@ from __future__ import annotations
 import math
 from typing import Literal
 
+from ri import room
+
 Gesture = Literal["forward", "left", "right"]
 GESTURES: tuple[Gesture, ...] = ("forward", "left", "right")
 
-ROUTE_LEG_M = 1.0
+ROUTE_LEG_M = room.current().leg_m
 _DIAGONAL = ROUTE_LEG_M * math.sqrt(0.5)
-# Two legs, each one metre at 45 degrees: ahead and to the left, then ahead
+# Two legs, each one metre (on the stage) at 45 degrees: ahead and to the left, then ahead
 # and to the right, which puts the drone over the landing pad.
 ROUTE: tuple[Gesture, ...] = ("left", "right")
 END = "end"

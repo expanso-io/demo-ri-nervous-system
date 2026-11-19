@@ -22,11 +22,12 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from ri import cloud, disk
+from ri import cloud, disk, room
 from ri.bus import Bus
 from ri.capture import LiveCamera, list_physical_audio_inputs
 from ri.messages import PIPELINE_FOR
@@ -47,6 +48,21 @@ DEVICE_PORT = {
     "hear-commands": "WORD_DEVICE_PORT",
     "see-hands": "HANDS_DEVICE_PORT",
 }
+SENSE_PORT = {
+    "clap": "CLAP_DEVICE_PORT",
+    "word": "WORD_DEVICE_PORT",
+    "hands": "HANDS_DEVICE_PORT",
+}
+# The show by number: each key sends what the room would have, through the
+# same device and pipeline. Stage 2 is five separate "up"s (see `climb`).
+STAGES: dict[int, tuple[str, str]] = {
+    1: ("clap", "clap"),
+    2: ("word", "up"),
+    3: ("hands", "left"),
+    4: ("hands", "right"),
+    5: ("hands", "crowd"),
+}
+GROUNDED = ("dark", "parked", "landing")
 TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -71,6 +87,7 @@ class Board:
         self.act: dict[str, Any] | None = None
         self.acts: deque[dict[str, Any]] = deque(maxlen=8)
         self.drone: dict[str, Any] = {}
+        self.climbing = threading.Lock()
         self.scene: dict[str, Any] = {
             "beat": "hook",
             "prompt": "This drone has no brain of its own. You are its nervous system.",
@@ -197,6 +214,76 @@ def post(target: str, body: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(detail) from error
 
 
+def force(sense: str, value: str) -> dict[str, Any]:
+    """Have a device send the decision its model would have made."""
+    return post(url(SENSE_PORT[sense], "/cue"), {"sense": sense, "force": value})
+
+
+def climb(
+    board: Board,
+    say: Callable[[str, str], Any] = force,
+    *,
+    top_m: float | None = None,
+    patience_s: float = 8.0,
+    tick_s: float = 0.1,
+) -> int:
+    """Say "up" as the presenter would: once, wait for the hover, again, to the top.
+
+    Stops at the room's top height, and stops at once if the drone lands or
+    stops answering. Returns how many ups were said.
+    """
+    this = room.current()
+    top = this.top_m if top_m is None else top_m
+    said = 0
+
+    def settle(done: Callable[[dict[str, Any]], bool]) -> bool:
+        deadline = time.monotonic() + patience_s
+        while time.monotonic() < deadline:
+            drone = board.drone
+            if not drone or drone.get("phase") in GROUNDED:
+                return False
+            if done(drone):
+                return True
+            time.sleep(tick_s)
+        return False
+
+    while said < room.UPS + 2:
+        if not settle(lambda d: d.get("phase") == "hovering"):
+            break
+        before = float(board.drone.get("target_m", 0.0))
+        if before >= top - 0.01:
+            break
+        say("word", "up")
+        said += 1
+
+        def climbed(drone: dict[str, Any], was: float = before) -> bool:
+            return float(drone.get("target_m", 0.0)) > was + 0.01
+
+        if not settle(climbed):
+            break
+    return said
+
+
+def run_stage(board: Board, stage: int) -> dict[str, Any]:
+    if stage not in STAGES:
+        raise ValueError(f"no stage {stage!r}: 1 to {len(STAGES)}")
+    if stage != 2:
+        return {"stage": stage, **force(*STAGES[stage])}
+    if not board.climbing.acquire(blocking=False):
+        return {"stage": stage, "already": True}
+
+    def _climb() -> None:
+        try:
+            log.info("stage 2: said up %d times", climb(board))
+        except Exception:
+            log.exception("stage 2 stopped")
+        finally:
+            board.climbing.release()
+
+    threading.Thread(target=_climb, daemon=True).start()
+    return {"stage": stage, "started": True}
+
+
 def make_handler(board: Board) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -306,16 +393,13 @@ def make_handler(board: Board) -> type[BaseHTTPRequestHandler]:
                         200,
                         post(url("FLIGHT_PORT", "/kill"), {"cut": bool(body.get("cut", False))}),
                     )
+                elif self.path == "/api/stage":
+                    self._json(200, run_stage(board, int(body.get("stage", 0))))
                 elif self.path == "/api/cue":
                     target_sense = str(body.get("sense", "word"))
-                    port_map = {
-                        "clap": "CLAP_DEVICE_PORT",
-                        "word": "WORD_DEVICE_PORT",
-                        "hands": "HANDS_DEVICE_PORT",
-                    }
-                    if target_sense not in port_map:
+                    if target_sense not in SENSE_PORT:
                         raise ValueError(f"unknown sense {target_sense!r}")
-                    self._json(200, post(url(port_map[target_sense], "/cue"), body))
+                    self._json(200, post(url(SENSE_PORT[target_sense], "/cue"), body))
                 elif self.path == "/api/link":
                     node = str(body.get("node", ""))
                     if node not in DEVICE_PORT:

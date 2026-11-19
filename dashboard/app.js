@@ -1400,6 +1400,15 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
+  // The show by number: 1 wake, 2 the five ups, 3 left, 4 right, 5 the room lands it.
+  if (/^[1-5]$/.test(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+
+    if (!event.repeat) postJson("/api/stage", { stage: Number(event.key) });
+
+    return;
+  }
+
   // The stage fallback: a key sends the decision a model should have made.
   const forced = FORCE_KEYS[event.key.length === 1 ? event.key.toLowerCase() : event.key];
 
