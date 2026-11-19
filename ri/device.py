@@ -347,10 +347,20 @@ class ClapDevice(AudioDevice):
     CLAPS_NEEDED = 5
     CLAPS_WITHIN_S = 3.0
     SAME_CLAP_S = 0.12  # one clap is heard again in each overlapping window
+    # Five bangs are still not five claps. They must come at a steady beat,
+    # as a person claps and as speech and clatter do not, and the classifier
+    # must have called several of those windows clapping, not just one.
+    GAP_S = (0.15, 0.8)
+    GAP_SPREAD = 2.5  # the longest gap over the shortest
+    WINDOWS_NEEDED = 3
+    TYPING_MAX = 0.3
+    NEAR_MISS_EVERY_S = 2.0
 
     def __init__(self, *, input_mode: str = "fixture", device_spec: str | None = None) -> None:
         super().__init__("clap", input_mode=input_mode, device_spec=device_spec)
         self.claps: deque[float] = deque()
+        self.clap_windows: deque[float] = deque()
+        self.near_miss_at = 0.0
         from ri.senses.clap import ClapDetector
 
         self.model = ClapDetector()
@@ -363,13 +373,56 @@ class ClapDevice(AudioDevice):
             self.windows += 1
             windows = self.windows
         fresh = now - self.last_emit.get("clap", 0.0) > self.REFRACTORY_S
-        enough = self.input_mode != "live" or self.count_claps(window, now) >= self.CLAPS_NEEDED
-        if score.triggered(self.MIN_CONFIDENCE) and fresh and enough:
+        clapping = score.triggered(self.MIN_CONFIDENCE) and score.typing < self.TYPING_MAX
+        enough = self.input_mode != "live" or self.enough_claps(window, now, clapping)
+        if clapping and fresh and enough:
             self.last_emit["clap"] = now
             self.claps.clear()
+            self.clap_windows.clear()
             decision = Decision("clap", now, confidence=score.confidence, seq=self.next_seq())
             return decision.to_json()
         return {"sense": None, "window": windows, "heard": round(score.confidence, 2)}
+
+    def enough_claps(self, window: Array, now: float, clapping: bool) -> bool:
+        """A live wake: five claps at a steady beat, heard as clapping more than once."""
+        counted = self.count_claps(window, now)
+        if clapping:
+            self.clap_windows.append(now)
+        while self.clap_windows and now - self.clap_windows[0] > self.CLAPS_WITHIN_S:
+            self.clap_windows.popleft()
+        steady = self.steady_claps()
+        votes = len(self.clap_windows)
+        woke = steady >= self.CLAPS_NEEDED and votes >= self.WINDOWS_NEEDED
+        if woke:
+            log.info("wake: %d steady claps, %d windows heard as clapping", steady, votes)
+        elif counted >= 3 and now - self.near_miss_at > self.NEAR_MISS_EVERY_S:
+            self.near_miss_at = now
+            log.info(
+                "no wake: %d sharp sounds, %d at a steady beat (need %d), "
+                "%d windows heard as clapping (need %d)",
+                counted,
+                steady,
+                self.CLAPS_NEEDED,
+                votes,
+                self.WINDOWS_NEEDED,
+            )
+        return woke
+
+    def steady_claps(self) -> int:
+        """The longest run of counted claps that keeps one beat."""
+        times = sorted(self.claps)
+        best = min(len(times), 1)
+        for first in range(len(times)):
+            gaps: list[float] = []
+            for at, after in zip(times[first:], times[first + 1 :], strict=False):
+                trial = [*gaps, after - at]
+                if not self.GAP_S[0] <= trial[-1] <= self.GAP_S[1]:
+                    break
+                if max(trial) > self.GAP_SPREAD * min(trial):
+                    break
+                gaps = trial
+            best = max(best, len(gaps) + 1)
+        return best
 
     def count_claps(self, window: Array, now: float) -> int:
         """How many separate claps the last few seconds held, this window included."""

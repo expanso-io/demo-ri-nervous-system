@@ -308,3 +308,44 @@ def test_one_bang_is_one_clap_however_many_windows_hear_it() -> None:
 
 def test_claps_too_far_apart_never_add_up_to_five() -> None:
     assert _most_claps_counted(_clapping([1.0, 2.6, 4.2, 5.8, 7.4], 9.0)) < 5
+
+
+def _live_clap_device() -> Any:
+    from ri.device import ClapDevice
+
+    device = ClapDevice.__new__(ClapDevice)
+    device.claps = deque()
+    device.clap_windows = deque()
+    device.near_miss_at = 0.0
+    return device
+
+
+def _wakes(audio: Array, heard_as_clapping: int) -> bool:
+    """Feed the live counter as the pipeline does; the classifier agrees N times."""
+    device = _live_clap_device()
+    woke = False
+    for n, end in enumerate(range(SR, len(audio) + 1, SR // 4)):
+        clapping = n >= 4 and n - 4 < heard_as_clapping
+        woke = woke or device.enough_claps(audio[end - SR : end], 100.0 + end / SR, clapping)
+    return woke
+
+
+def test_a_live_wake_needs_a_steady_beat_and_the_classifier_more_than_once() -> None:
+    steady = _clapping([1.0, 1.4, 1.8, 2.2, 2.6], 4.0)
+    assert _wakes(steady, heard_as_clapping=6)
+    # One window mistaken for a clap is not enough, however many bangs there were.
+    assert not _wakes(steady, heard_as_clapping=1)
+    # Five bangs with no beat: a door, a cough, a chair, a cup, a step.
+    assert not _wakes(_clapping([1.0, 1.2, 1.95, 2.15, 2.9], 4.0), heard_as_clapping=6)
+    assert not _wakes(_clapping([1.0, 1.4, 1.8, 2.2], 4.0), heard_as_clapping=6)
+
+
+def test_a_sharp_sound_that_carries_on_is_speech_not_a_clap() -> None:
+    from ri.senses.clap import onset_times
+
+    audio = _clapping([1.0], 2.0)
+    assert len(onset_times(audio, SR)) == 1
+    # The same burst with a voiced sound straight after it, as in "pah".
+    tone = (0.2 * np.sin(2 * np.pi * 180 * np.arange(int(0.25 * SR)) / SR)).astype(np.float32)
+    audio[int(1.02 * SR) : int(1.02 * SR) + len(tone)] += tone
+    assert onset_times(audio, SR) == []

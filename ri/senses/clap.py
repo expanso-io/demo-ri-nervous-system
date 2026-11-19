@@ -60,6 +60,11 @@ FRAME = 80  # 5 ms energy frames
 ONSET_RATIO = 8.0  # peak energy over the preceding 100 ms
 ONSET_RISE_FRAMES = 4  # 20 ms from a tenth of the peak to the peak
 MIN_RMS = 0.003
+# A clap is over in a few hundredths of a second. A spoken "p" or "t" also
+# starts sharply, but a vowel follows it, so the sound carries on.
+TAIL_FRAMES = (12, 30)  # 60 to 150 ms after the peak
+TAIL_MAX = 0.25  # of the peak's energy
+TYPING_CLASSES = ("Typing", "Computer keyboard", "Typewriter")
 
 
 @dataclass(frozen=True)
@@ -68,6 +73,7 @@ class ClapScore:
     onset: bool
     onset_ratio: float
     rms: float
+    typing: float = 0.0  # how much the window sounds like a keyboard
 
     def triggered(self, floor: float = 0.5) -> bool:
         return self.onset and self.confidence >= floor
@@ -98,7 +104,8 @@ def onset_times(audio: Array, sr: int = 16000) -> list[float]:
     """When each sharp transient in `audio` peaks, in seconds from its start.
 
     The same test as `onset_strength`, but it keeps every hit, so a run of
-    claps can be counted one by one.
+    claps can be counted one by one, and it drops a hit whose sound carries
+    on afterwards: that is speech, not a clap.
     """
     n = len(audio) // FRAME
     if n < 30:
@@ -111,8 +118,12 @@ def onset_times(audio: Array, sr: int = 16000) -> list[float]:
             continue
         floor = energy[i] * 0.1
         rise = next((k for k in range(0, 12) if i - k - 1 < 0 or energy[i - k - 1] < floor), 12)
-        if rise <= ONSET_RISE_FRAMES:
-            hits.append(i * FRAME / sr)
+        if rise > ONSET_RISE_FRAMES:
+            continue
+        tail = energy[i + TAIL_FRAMES[0] : i + TAIL_FRAMES[1]]
+        if len(tail) and float(tail.mean()) > TAIL_MAX * energy[i]:
+            continue
+        hits.append(i * FRAME / sr)
     return hits
 
 
@@ -170,6 +181,7 @@ class ClapDetector:
         ]
         self.indices = [names.index(name) for name in CLAP_CLASSES]
         self.feature_indices = [names.index(name) for name in YAMNET_CLASS_FEATURES]
+        self.typing_indices = [names.index(name) for name in TYPING_CLASSES]
         self.head: nn.Module | None = None
         self.head_mean: torch.Tensor | None = None
         self.head_std: torch.Tensor | None = None
@@ -204,4 +216,5 @@ class ClapDetector:
                 confidence = float(torch.sigmoid(self.head(x.unsqueeze(0)).squeeze()))
         else:
             confidence = float(max(scores[i] for i in self.indices))
-        return ClapScore(confidence, onset, ratio, rms)
+        typing = float(max(scores[i] for i in self.typing_indices))
+        return ClapScore(confidence, onset, ratio, rms, typing)
