@@ -245,6 +245,13 @@ def resolve_camera_source(
     if isinstance(source, int):
         return source, named.get(source)
     text = str(source).strip()
+    if "|" in text:
+        # A preference list: the first camera that is plugged in wins.
+        wanted = [part.strip() for part in text.split("|") if part.strip()]
+        for choice in wanted[:-1]:
+            with contextlib.suppress(RuntimeError):
+                return resolve_camera_source(choice, known)
+        return resolve_camera_source(wanted[-1], known)
     if text.isdigit():
         idx = int(text)
         return idx, named.get(idx)

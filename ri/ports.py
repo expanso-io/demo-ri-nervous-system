@@ -13,7 +13,7 @@ RUNTIME = ROOT / ".runtime"
 
 DEFAULT_DRONE = "codrone"
 DEFAULT_INPUT = "live"
-DEFAULT_CAMERA = "OBSBOT Tiny 2 Lite"
+DEFAULT_CAMERA = "AnkerWork C310|OBSBOT Tiny 2 Lite"
 DEFAULT_MIC = "dji"
 
 

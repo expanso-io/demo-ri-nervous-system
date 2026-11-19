@@ -4,7 +4,7 @@ port := `uv run --no-project scripts/demo-ports.py resolve --demo-dir . --allow-
 cloud := "uv run --no-project scripts/cloud_env.py --"
 nodes := "hear-clap hear-commands see-hands fly-drone"
 default_drone := "codrone"
-default_cam := "OBSBOT Tiny 2 Lite"
+default_cam := "AnkerWork C310|OBSBOT Tiny 2 Lite"
 default_mic := "dji"
 
 _default:
@@ -14,7 +14,7 @@ _default:
 cameras:
     uv run python -m ri.capture
 
-# Default live rig: CoDrone EDU + live DJI/Mac mic + OBSBOT Tiny 2 Lite camera.
+# Default live rig: CoDrone EDU + live DJI/Mac mic + the first camera in default_cam that is plugged in.
 # Override any part with parameters (for example `just up sim fixture none`).
 up drone=default_drone input="live" cam=default_cam mic=default_mic hands_input="":
     uv run python -m ri.stack up --drone {{drone}} --input {{input}} --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input "{{ if hands_input != '' { hands_input } else { input } }}"

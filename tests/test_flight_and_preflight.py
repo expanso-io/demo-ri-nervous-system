@@ -349,8 +349,8 @@ def test_default_live_hardware_and_parameter_overrides(monkeypatch: pytest.Monke
     live_env = stack_mod.environment(default_args)
     assert live_env["RI_DRONE"] == "codrone"
     assert live_env["RI_INPUT"] == "live"
-    assert live_env["RI_STAGE_CAM"] == "OBSBOT Tiny 2 Lite"
-    assert live_env["RI_HANDS_DEVICE"] == "OBSBOT Tiny 2 Lite"
+    assert live_env["RI_STAGE_CAM"] == "AnkerWork C310|OBSBOT Tiny 2 Lite"
+    assert live_env["RI_HANDS_DEVICE"] == "AnkerWork C310|OBSBOT Tiny 2 Lite"
     assert live_env["RI_CLAP_DEVICE"] == "dji"
     assert live_env["RI_WORD_DEVICE"] == "dji"
 
@@ -487,3 +487,15 @@ def test_an_oversized_log_is_cut_to_its_last_lines_under_a_live_writer(tmp_path:
     assert len(text) < 300
     assert text.endswith("last line\nafter the cut\n")
     assert disk.cap_logs(tmp_path, cap=1000, keep=200) == 0
+
+
+def test_a_camera_preference_list_takes_the_first_one_plugged_in() -> None:
+    from ri.ports import DEFAULT_CAMERA
+
+    old = (3, "OBSBOT Tiny 2 Lite StreamCamera")
+    new = (2, "AnkerWork C310 Webcam")
+    builtin = (0, "MacBook Pro Camera")
+    assert capture.resolve_camera_source(DEFAULT_CAMERA, [builtin, new, old]) == new
+    assert capture.resolve_camera_source(DEFAULT_CAMERA, [builtin, old]) == old
+    with pytest.raises(RuntimeError, match="OBSBOT Tiny 2 Lite"):
+        capture.resolve_camera_source(DEFAULT_CAMERA, [builtin])
