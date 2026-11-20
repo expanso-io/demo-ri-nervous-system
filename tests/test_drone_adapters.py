@@ -21,6 +21,8 @@ class FakeCoDroneSDK:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.fail_telemetry = False
         self.throttle = 0
+        self.lowest_m = height_m
+        self.lifts = True
 
     def takeoff(self) -> None:
         self.calls.append(("takeoff", ()))
@@ -41,6 +43,7 @@ class FakeCoDroneSDK:
         self.calls.append(("move", (seconds,)))
         # A real airframe climbs faster than any timer assumes.
         self.height_m += self.throttle / 100 * seconds * 5
+        self.lowest_m = min(self.lowest_m, self.height_m)
 
     def sendControlPosition(
         self, x: float, y: float, z: float, speed: float, heading: int, turn: int
@@ -137,7 +140,8 @@ def test_codrone_adapter_clamps_hovers_caches_and_cuts() -> None:
 
         # The climb is asked for only as far as the measured ceiling.
         reached = drone.state().altitude_m
-        assert reached == pytest.approx(MAX_ALTITUDE_M)
+        assert reached == pytest.approx(MAX_ALTITUDE_M, abs=0.05)
+        assert reached <= MAX_ALTITUDE_M + 0.05
 
         # Transient telemetry glitch preserves cached battery & altitude.
         sdk.fail_telemetry = True
@@ -198,7 +202,9 @@ def test_codrone_settles_to_the_wake_height_and_flies_a_leg_as_one_diagonal() ->
     try:
         drone.take_off(WAKE_ALTITUDE_M)
         _wait_until(lambda: drone.state().phase == "hovering")
-        assert WAKE_ALTITUDE_M - 0.2 < drone.state().altitude_m <= WAKE_ALTITUDE_M
+        assert drone.state().altitude_m == pytest.approx(WAKE_ALTITUDE_M, abs=0.05)
+        # It comes down on the measured height and never dips under the goal.
+        assert sdk.lowest_m >= WAKE_ALTITUDE_M - 0.05
         drone.move_vertical(0.1)
         _wait_until(lambda: drone.state().phase == "hovering")
         assert drone.state().target_m == pytest.approx(WAKE_ALTITUDE_M + 0.1)
@@ -208,9 +214,9 @@ def test_codrone_settles_to_the_wake_height_and_flies_a_leg_as_one_diagonal() ->
         ahead, left, up, speed = next(
             a for name, a in sdk.calls if name == "position" and a[2] == 0
         )
-        # A climb is a position move with no sideways part: straight up.
-        climbs = [a for name, a in sdk.calls if name == "position" and a[2] != 0]
-        assert climbs and all(a[0] == 0 and a[1] == 0 for a in climbs)
+        # Height is never flown as a position move: only the leg is.
+        assert not [a for name, a in sdk.calls if name == "position" and a[2] != 0]
+        assert sdk.throttle == 0
         assert (ahead, left) == pytest.approx((0.7071, 0.7071), abs=1e-4)
         assert ahead**2 + left**2 == pytest.approx(1.0)
         assert (up, speed) == (0, 0.5)
@@ -219,7 +225,7 @@ def test_codrone_settles_to_the_wake_height_and_flies_a_leg_as_one_diagonal() ->
 
 
 def test_codrone_cuts_its_motors_only_once_it_is_on_the_ground() -> None:
-    grounded = FakeCoDroneSDK(height_m=0.05, lands_to=0.05)
+    grounded = FakeCoDroneSDK(height_m=0.9, lands_to=0.05)
     drone = CoDroneEdu(sdk=grounded, settle_s=0.3)
     try:
         drone.take_off(1.0)
@@ -255,5 +261,61 @@ def test_codrone_on_the_floor_stops_claiming_to_hover() -> None:
         _wait_until(lambda: drone.state().phase == "parked")
         assert drone.state().target_m == 0.0
         assert not drone.state().airborne
+    finally:
+        drone.close()
+
+
+def test_codrone_that_does_not_lift_is_parked_not_hovering() -> None:
+    sdk = FakeCoDroneSDK(height_m=0.0)
+    drone = CoDroneEdu(sdk=sdk)
+    try:
+        drone.take_off(WAKE_ALTITUDE_M)
+        _wait_until(lambda: drone.state().phase == "parked")
+        assert not any(name == "set_throttle" for name, _ in sdk.calls)
+        assert drone.state().target_m == 0.0
+    finally:
+        drone.close()
+
+
+def test_codrone_ignores_a_height_the_drone_stopped_sending() -> None:
+    class SilentSDK(FakeCoDroneSDK):
+        """The real SDK repeats its last reading for ever once the drone is off."""
+
+        def __init__(self) -> None:
+            super().__init__(height_m=1.7, lands_to=1.7)
+            self.timeStartProgram = time.time() - 60.0
+            self.range_data = [5.0, 0, 1700]
+
+    sdk = SilentSDK()
+    drone = CoDroneEdu(sdk=sdk, settle_s=30.0)
+    try:
+        # A wake does not fly on a reading that is a minute old.
+        drone.take_off(WAKE_ALTITUDE_M)
+        _wait_until(lambda: drone.state().phase == "parked")
+        assert not any(name == "set_throttle" for name, _ in sdk.calls)
+        # A parked drone is shown on the floor, not at its last reading.
+        assert drone.state().altitude_m == 0.0
+        # A stop does not wait out the whole settle time on a silent drone.
+        began = time.monotonic()
+        drone.land()
+        _wait_until(lambda: any(n == "land" for n, _ in sdk.calls[-3:]))
+        _wait_until(lambda: drone.state().phase == "parked")
+        assert time.monotonic() - began < 6.0
+        assert not any(name == "emergency_stop" for name, _ in sdk.calls)
+    finally:
+        drone.close()
+
+
+def test_codrone_gives_up_a_height_move_when_the_reading_goes() -> None:
+    sdk = FakeCoDroneSDK(height_m=0.9)
+    drone = CoDroneEdu(sdk=sdk)
+    try:
+        drone.take_off(0.9)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        sdk.fail_telemetry = True
+        drone.move_vertical(0.3)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        assert sdk.throttle == 0
+        assert sdk.height_m == pytest.approx(0.9, abs=0.05)
     finally:
         drone.close()

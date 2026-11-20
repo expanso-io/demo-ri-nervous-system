@@ -34,6 +34,18 @@ SENSOR_MAX_M = 3.0
 # The slowest the airframe's own position moves go, in metres a second.
 MOVE_SPEED = 0.5
 CEILING_SLACK_M = 0.15
+# Height is steered on the measured height: throttle in proportion to what is
+# left to go, gentle on the way down, until the reading sits on the goal.
+HEIGHT_TOLERANCE_M = 0.05
+THROTTLE_PER_M = 100.0
+CLIMB_MAX = 30
+SINK_MAX = 20
+THROTTLE_MIN = 10
+SETTLED_READS = 3
+STEER_S = 0.05
+BLIND_S = 1.0
+# A reading older than this is the last thing a silent drone said, not a height.
+STALE_S = 1.0
 
 RGB: dict[str, tuple[int, int, int]] = {
     "off": (0, 0, 0),
@@ -90,6 +102,16 @@ class CoDroneEdu:
         def run() -> None:
             self._abort.clear()
             self._drone.takeoff()
+            height = self._height()
+            if height is None or height <= GROUND_M:
+                # No height, or still on the floor: it did not lift.
+                log.warning("take-off did not lift (height %s): parked", height)
+                with contextlib.suppress(Exception):
+                    self._drone.land()
+                with self._lock:
+                    self._phase = "parked"
+                    self._target = 0.0
+                return
             # The airframe picks its own take-off height; bring it to ours.
             self._fly_to(self._target)
             with self._lock:
@@ -122,7 +144,16 @@ class CoDroneEdu:
         CONFIRM on the airframe.
         """
         deadline = time.monotonic() + self._settle_s
+        silent_since: float | None = None
         while True:
+            age = self._reading_age()
+            if age is None or age <= STALE_S:
+                silent_since = None
+            elif silent_since is None:
+                silent_since = time.monotonic()
+            elif time.monotonic() - silent_since >= 2 * STALE_S:
+                log.warning("landed but the drone has gone silent; motors left alone")
+                return
             try:
                 if float(self._drone.get_height("m")) <= GROUND_M:
                     self._drone.emergency_stop()
@@ -185,16 +216,31 @@ class CoDroneEdu:
         except Exception:
             log.debug("height read failed", exc_info=True)
             return None
+        age = self._reading_age()
+        if age is not None and age > STALE_S:
+            return None
         # The sensor answers 10 m when it sees nothing. That is not a height.
         return height if 0.0 <= height <= SENSOR_MAX_M else None
+
+    def _reading_age(self) -> float | None:
+        """Seconds since the drone last sent a height, or None if the SDK cannot say.
+
+        The SDK hands back its last reading for ever once the drone is off or
+        out of range, so an old reading has to be told from a fresh one.
+        """
+        data = getattr(self._drone, "range_data", None)
+        started = getattr(self._drone, "timeStartProgram", None)
+        if not isinstance(data, list) or not data or started is None:
+            return None
+        return time.time() - float(started) - float(data[0])
 
     def _move_by(self, ahead_m: float, left_m: float, up_m: float) -> None:
         """One position move, held on line by the airframe's own position hold.
 
-        Raw throttle lets the drone wander sideways while it climbs. A
-        position move tells the flight controller where to end up, so a
-        climb is straight up and a leg is one straight line. The wait can be
-        cut short by a land, and the ceiling is watched the whole way.
+        A position move tells the flight controller where to end up, so a
+        leg is one straight line. The wait can be cut short by a land, and
+        the ceiling is watched the whole way. Height is not flown this way:
+        on the airframe a position move down overshot into the floor.
         """
         distance = (ahead_m**2 + left_m**2 + up_m**2) ** 0.5
         for _ in range(3):
@@ -213,17 +259,52 @@ class CoDroneEdu:
         self._drone.hover(0.3)
 
     def _fly_to(self, goal_m: float) -> None:
-        """Climb or sink straight to `goal_m`, measured, under a hard ceiling."""
+        """Climb or sink to `goal_m`, steering on the measured height.
+
+        Throttle follows what is left to go and stops when the reading sits
+        on the goal. With no reading the throttle is zero, and after a
+        second of that the move is given up. CONFIRM on the airframe.
+        """
         start = self._height()
         if start is None:
             log.warning("no height reading: height move skipped")
             return
         goal = max(LOWEST_M, min(MAX_ALTITUDE_M, goal_m))
-        if abs(goal - start) < 0.04:
-            log.info("already at %.2f m (goal %.2f)", start, goal)
-            return
-        self._move_by(0.0, 0.0, goal - start)
-        log.info("height %.2f -> %s m (goal %.2f)", start, self._height(), goal)
+        deadline = time.monotonic() + 4.0 + abs(goal - start) * 8.0
+        settled = 0
+        blind_since: float | None = None
+        outcome = "timed out"
+        try:
+            while time.monotonic() < deadline:
+                if self._abort.is_set():
+                    outcome = "cut short"
+                    break
+                height = self._height()
+                power = 0
+                if height is None:
+                    blind_since = blind_since or time.monotonic()
+                    if time.monotonic() - blind_since >= BLIND_S:
+                        outcome = "lost the height reading"
+                        break
+                else:
+                    blind_since = None
+                    error = goal - height
+                    if abs(error) <= HEIGHT_TOLERANCE_M:
+                        settled += 1
+                        if settled >= SETTLED_READS:
+                            outcome = "reached"
+                            break
+                    else:
+                        settled = 0
+                        power = round(max(-SINK_MAX, min(CLIMB_MAX, error * THROTTLE_PER_M)))
+                        if abs(power) < THROTTLE_MIN:
+                            power = THROTTLE_MIN if error > 0 else -THROTTLE_MIN
+                self._drone.set_throttle(power)
+                self._drone.move(STEER_S)
+        finally:
+            self._drone.set_throttle(0)
+            self._drone.hover(0.3)
+        log.info("height %.2f -> %s m (goal %.2f, %s)", start, self._height(), goal, outcome)
 
     def move_horizontal(self, forward_m: float, right_m: float) -> None:
         with self._lock:
@@ -280,7 +361,8 @@ class CoDroneEdu:
             log.debug("codrone telemetry poll failed", exc_info=True)
         with self._lock:
             phase = self._phase
-            altitude = self._altitude if self._phase != "dark" else 0.0
+            # A drone that is down is on the floor, whatever it last measured.
+            altitude = self._altitude if self._phase not in ("dark", "parked") else 0.0
             battery = self._battery
             target = self._target
             leds = self._leds
