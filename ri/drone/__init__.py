@@ -20,9 +20,11 @@ AIRBORNE: frozenset[str] = frozenset(
     {"taking_off", "hovering", "climbing", "descending", "cruising"}
 )
 
-# LED colours carry meaning on stage: white on wake, the direction's colour
-# on a turn, the reflex colour on land, green breathing once parked.
-LedColor = Literal["off", "white", "blue", "amber", "red", "green"]
+# LED colours carry meaning on stage: one colour while a step is under way,
+# another once it is finished (ri.flight), red on land, green breathing parked.
+LedColor = Literal[
+    "off", "white", "blue", "amber", "red", "green", "yellow", "purple", "cyan", "pink"
+]
 LedMode = Literal["off", "solid", "breathing"]
 
 # Sized by the room (ri/room.py). On the stage a clap lifts the drone to

@@ -25,7 +25,15 @@ from typing import Any
 
 from ri.bus import ACT_TOPIC, DRONE_TOPIC, Bus
 from ri.decide import Action, Decider
-from ri.drone import STEP_M, WAKE_ALTITUDE_M, DroneAdapter, LedColor, LedMode, make_adapter
+from ri.drone import (
+    MAX_ALTITUDE_M,
+    STEP_M,
+    WAKE_ALTITUDE_M,
+    DroneAdapter,
+    LedColor,
+    LedMode,
+    make_adapter,
+)
 from ri.messages import MessageError, parse_decision
 from ri.ports import DEFAULT_DRONE, port
 from ri.route import MOVE, ROUTE, need
@@ -39,14 +47,27 @@ STOP_QUIET_S = 10.0
 ROUTE_ON = os.environ.get("RI_ROUTE", "1") != "0"
 log = logging.getLogger("ri.flight")
 
+# Each stage has one colour while the drone is getting there and another once
+# it has arrived, so the room can see a step finish. A stage is "wake", "up",
+# or the leg being flown.
 LEDS: dict[str, tuple[LedColor, LedMode]] = {
-    "wake": ("white", "solid"),
+    "wake": ("amber", "solid"),
     "up": ("blue", "solid"),
-    "down": ("amber", "solid"),
+    "down": ("blue", "solid"),
     "stop": ("white", "solid"),
-    "go": ("blue", "solid"),
+    "left": ("cyan", "solid"),
+    "right": ("pink", "solid"),
+    "forward": ("cyan", "solid"),
     "land": ("red", "solid"),
 }
+ARRIVED: dict[str, LedColor] = {
+    "wake": "green",  # at the start height
+    "top": "purple",  # at the highest it may go
+    "left": "yellow",
+    "right": "white",  # route flown: waiting for the room's hands
+    "forward": "yellow",
+}
+MOVING = ("taking_off", "climbing", "descending", "cruising")
 
 
 class Flight:
@@ -60,11 +81,16 @@ class Flight:
         self.decisions = 0
         self.step = 0  # how much of the fixed route has been flown
         self.quiet_until = 0.0
+        self.stage: str | None = None
 
     def apply(self, action: Action) -> None:
         state = self.drone.state()
-        if action.act in LEDS:
-            self.drone.set_leds(*LEDS[action.act])
+        stage: str | None = action.act
+        if action.act == "go":
+            stage = ROUTE[self.step] if self.step < len(ROUTE) else None
+        if stage in LEDS:
+            self.drone.set_leds(*LEDS[stage])
+            self.stage = "up" if stage == "down" else stage
         if action.act == "wake":
             self.step = 0
             self.drone.take_off(WAKE_ALTITUDE_M)
@@ -79,6 +105,12 @@ class Flight:
             self.drone.hover()
         elif action.act == "land" and state.phase != "landing":
             self.drone.land()
+
+    def arrived_color(self, target_m: float) -> LedColor | None:
+        """The colour for having finished the current stage, or None to keep it."""
+        if self.stage == "up":
+            return ARRIVED["top"] if target_m >= MAX_ALTITUDE_M - 0.01 else None
+        return ARRIVED.get(self.stage or "")
 
     def decide(self, raw: bytes) -> dict[str, Any]:
         decision = parse_decision(raw)
@@ -166,11 +198,12 @@ class Flight:
         while True:
             with self.lock:
                 state = self.drone.state()
-                # Back to white once a step finishes, so colour always means
-                # "what it is doing now".
-                if state.phase == "hovering" and previous in ("climbing", "descending", "cruising"):
-                    self.drone.set_leds("white", "solid")
-                    state = self.drone.state()
+                # The colour changes the moment a step is finished.
+                if state.phase == "hovering" and previous in MOVING:
+                    arrived = self.arrived_color(state.target_m)
+                    if arrived is not None:
+                        self.drone.set_leds(arrived, "solid")
+                        state = self.drone.state()
                 previous = state.phase
             if state.battery is not None and state.battery < LOW_BATTERY_PCT and not warned_low:
                 warned_low = True

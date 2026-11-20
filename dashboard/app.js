@@ -43,6 +43,10 @@ const LED = {
   amber: COLORS.warn,
   red: COLORS.err,
   green: COLORS.ok,
+  yellow: "#c9a400",
+  purple: "#a21caf",
+  cyan: "#0891b2",
+  pink: "#db2777",
 };
 
 const ACT_COLOR = {

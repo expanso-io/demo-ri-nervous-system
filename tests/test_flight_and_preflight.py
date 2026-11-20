@@ -518,3 +518,30 @@ def test_starting_a_job_that_was_deleted_deploys_it_again(monkeypatch: Any) -> N
     monkeypatch.setattr(cloud, "cli", fake_cli)
     cloud.rerun("hear-clap")
     assert [c[:2] for c in calls] == [("job", "rerun"), ("job", "deploy"), ("job", "rerun")]
+
+
+def test_each_stage_has_a_colour_under_way_and_another_once_it_arrives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ri.decide import Action
+    from ri.drone import MAX_ALTITUDE_M
+    from ri.route import ROUTE
+
+    monkeypatch.setattr(flight_mod, "Bus", FakeBus)
+    fl = flight_mod.Flight("sim")
+    try:
+        fl.apply(Action("wake", "clap", "wake"))
+        assert fl.drone.state().leds.color == "amber"
+        assert fl.arrived_color(0.4) == "green"
+        fl.apply(Action("up", "word up", "move"))
+        assert fl.drone.state().leds.color == "blue"
+        assert fl.arrived_color(MAX_ALTITUDE_M - 0.1) is None  # a step, not the top
+        assert fl.arrived_color(MAX_ALTITUDE_M) == "purple"
+        seen = []
+        for _leg in ROUTE:
+            fl.drone._phase = "hovering"  # type: ignore[attr-defined]
+            fl.apply(Action("go", "wave", "route"))
+            seen.append((fl.drone.state().leds.color, fl.arrived_color(0.9)))
+        assert seen == [("cyan", "yellow"), ("pink", "white")]
+    finally:
+        fl.shutdown()
