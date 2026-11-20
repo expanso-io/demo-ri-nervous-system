@@ -38,14 +38,16 @@ CEILING_SLACK_M = 0.15
 # Height is steered on the measured height: throttle in proportion to what is
 # left to go, gentle on the way down, until the reading sits on the goal.
 HEIGHT_TOLERANCE_M = 0.05
-THROTTLE_PER_M = 100.0
-CLIMB_MAX = 30
-SINK_MAX = 20
-THROTTLE_MIN = 10
+# On the airframe throttle 30 climbed at about 5 cm a second: a 0.1 m step
+# took four seconds. These are sized to make a step in about one.
+THROTTLE_PER_M = 400.0
+CLIMB_MAX = 70
+SINK_MAX = 35
+THROTTLE_MIN = 30
 # The height has to sit on the goal this long: passing through it is not arriving.
-SETTLED_S = 0.5
+SETTLED_S = 0.15
 # Throttle taken off per metre a second of measured climb, so it brakes early.
-BRAKE_PER_MPS = 40.0
+BRAKE_PER_MPS = 60.0
 STEER_S = 0.05
 # While the height is steered, the drone is also steered back over one spot.
 TILT_PER_M = 70.0
@@ -55,6 +57,8 @@ SPOT_TOLERANCE_M = 0.03
 # that gets this much further from its spot while steered is steered no more.
 SPOT_MAX_M = 1.2
 WORSE_M = 0.6
+# A hovering drone is leaned back over its spot once it is this far off it.
+STATION_SLACK_M = 0.06
 # The airframe's own take-off is waited out only as long as it really takes.
 LIFT_OFF_S = 4.0
 GYRO_RESET_S = 6.0
@@ -112,10 +116,13 @@ class CoDroneEdu:
             self._drone.pair(port_name) if port_name else self._drone.pair()
         else:
             self._drone = sdk
-        self._worker = CommandWorker(self.name)
         self._lock = threading.Lock()
         self._phase: Phase = "dark"
         self._target = 0.0
+        # Where it is meant to hover, in metres ahead and left of take-off.
+        self._station: tuple[float, float] | None = None
+        self._station_lost = False
+        self._worker = CommandWorker(self.name, idle=self._keep_station)
         self._altitude = 0.0
         self._battery: int | None = None
         self._leds = Leds()
@@ -165,7 +172,8 @@ class CoDroneEdu:
                 return
             # The airframe picks its own take-off height; bring it to ours.
             # Its position counts from the take-off point, so (0, 0) is the pad.
-            self._fly_to(self._target, spot=(0.0, 0.0))
+            self._station, self._station_lost = (0.0, 0.0), False
+            self._fly_to(self._target, spot=self._station)
             with self._lock:
                 if self._phase == "taking_off":
                     self._phase = "hovering"
@@ -305,7 +313,7 @@ class CoDroneEdu:
 
         def run() -> None:
             self._abort.clear()
-            self._fly_to(new_target)
+            self._fly_to(new_target, spot=self._station)
             with self._lock:
                 if self._phase in ("climbing", "descending"):
                     self._phase = "hovering"
@@ -393,20 +401,73 @@ class CoDroneEdu:
         on the airframe a position move down overshot into the floor.
         """
         distance = (ahead_m**2 + left_m**2 + up_m**2) ** 0.5
+        began = self._position()
         for _ in range(3):
             self._drone.sendControlPosition(
                 float(ahead_m), float(left_m), float(up_m), MOVE_SPEED, 0, 0
             )
             time.sleep(0.05)
+        went = 0.0
+        outcome = "ran its time"
         deadline = time.monotonic() + distance / MOVE_SPEED + 1.0
         while time.monotonic() < deadline:
-            if self._abort.wait(0.1):
+            if self._abort.wait(0.05):
                 return
             height = self._height()
             if height is not None and height > MAX_ALTITUDE_M + CEILING_SLACK_M:
                 log.warning("%.2f m is over the ceiling: holding", height)
+                outcome = "stopped at the ceiling"
                 break
+            here = self._position() if began is not None else None
+            if here is not None and began is not None:
+                went = ((here[0] - began[0]) ** 2 + (here[1] - began[1]) ** 2) ** 0.5
+                if went >= distance:
+                    # The leg is flown: it stops here whatever the airframe intends.
+                    outcome = "stopped at its length"
+                    break
         self._drone.hover(0.3)
+        log.info(
+            "leg of %.2f m: measured %s m, %s",
+            distance,
+            "nothing" if began is None else f"{went:.2f}",
+            outcome,
+        )
+
+    def _keep_station(self) -> None:
+        """Lean a hovering drone back over the spot it is meant to hold.
+
+        Run by the worker whenever no command is waiting. The spot is fixed
+        when a move is ordered, never where the drone happens to be, so no
+        number of repeated signals can walk it further. Close to the spot it
+        is left to the airframe's own hold. Too far off, the position is not
+        believed and nothing is steered: the fence lands it instead.
+        """
+        with self._lock:
+            hovering = self._phase == "hovering"
+        station = self._station
+        if not hovering or station is None or self._abort.is_set():
+            return
+        if not hasattr(self._drone, "set_roll"):
+            return
+        here = self._position()
+        if here is None:
+            return
+        ahead, left = here[0] - station[0], here[1] - station[1]
+        off = (ahead**2 + left**2) ** 0.5
+        if off > WORSE_M:
+            if not self._station_lost:
+                self._station_lost = True
+                log.warning("%.2f m off its spot while hovering: not steered", off)
+            return
+        self._station_lost = False
+        if off <= STATION_SLACK_M:
+            return
+        self._drone.set_pitch(round(max(-TILT_MAX, min(TILT_MAX, -ahead * TILT_PER_M))))
+        self._drone.set_roll(round(max(-TILT_MAX, min(TILT_MAX, left * TILT_PER_M))))
+        self._drone.set_throttle(0)
+        self._drone.move(STEER_S)
+        self._drone.set_pitch(0)
+        self._drone.set_roll(0)
 
     def _fly_to(self, goal_m: float, spot: tuple[float, float] | None = None) -> None:
         """Climb or sink to `goal_m` over one spot, steering on what is measured.
@@ -439,6 +500,12 @@ class CoDroneEdu:
                     outcome = "cut short"
                     break
                 now = time.monotonic()
+                # An "up" heard mid-climb moves the goal of the climb under way.
+                wanted_m = self._target
+                if wanted_m > 0 and abs(wanted_m - goal) > 1e-6:
+                    goal = max(LOWEST_M, min(MAX_ALTITUDE_M, wanted_m))
+                    deadline = max(deadline, now + 5.0)
+                    settled_since = None
                 height = self._height()
                 power = 0
                 if height is None:
@@ -522,6 +589,10 @@ class CoDroneEdu:
             # CONFIRM on the airframe: the distance is the SDK's own estimate.
             self._abort.clear()
             self._move_by(forward_m, -right_m, 0.0)
+            # The leg ends at a fixed point measured from take-off, not from
+            # wherever the drone drifted to before it began.
+            if self._station is not None:
+                self._station = (self._station[0] + forward_m, self._station[1] - right_m)
             with self._lock:
                 if self._phase == "cruising":
                     self._phase = "hovering"

@@ -40,8 +40,9 @@ class FakeCoDroneSDK:
 
     def move(self, seconds: float) -> None:
         self.calls.append(("move", (seconds,)))
-        # A real airframe climbs faster than any timer assumes.
-        self.height_m += self.throttle / 100 * seconds * 5
+        # Six times livelier than the airframe measured (throttle 30 was
+        # 5 cm a second), so a loop that is steady here is steady there.
+        self.height_m += self.throttle / 100 * seconds
         self.lowest_m = min(self.lowest_m, self.height_m)
 
     def sendControlPosition(
@@ -577,5 +578,84 @@ def test_codrone_stops_waiting_for_take_off_the_moment_it_is_flying() -> None:
         assert time.monotonic() - began < 3.0
         assert not any(name == "takeoff" for name, _ in sdk.calls)
         assert sdk.sent == 2
+    finally:
+        drone.close()
+
+
+class SteeredSDK(PositionedSDK):
+    """Slides the way it is tilted, and overshoots every leg by half again."""
+
+    def __init__(self, *, height_m: float = 0.9) -> None:
+        super().__init__(height_m=height_m)
+        self.roll = 0
+        self.pitch = 0
+
+    def set_roll(self, pct: int) -> None:
+        self.roll = pct
+
+    def set_pitch(self, pct: int) -> None:
+        self.pitch = pct
+
+    def move(self, seconds: float) -> None:
+        super().move(seconds)
+        self.position_data[1] += self.pitch / 100 * seconds * 4
+        self.position_data[2] -= self.roll / 100 * seconds * 4
+
+    def sendControlPosition(
+        self, x: float, y: float, z: float, speed: float, heading: int, turn: int
+    ) -> None:
+        if self.calls and self.calls[-1] == ("position", (x, y, z, speed)):
+            return
+        super().sendControlPosition(x, y, z, speed, heading, turn)
+        self.position_data[1] += x * 1.5
+        self.position_data[2] += y * 1.5
+
+
+def _off(sdk: PositionedSDK, ahead: float, left: float) -> float:
+    return float(((sdk.position_data[1] - ahead) ** 2 + (sdk.position_data[2] - left) ** 2) ** 0.5)
+
+
+def test_codrone_leans_a_hovering_drone_back_over_its_spot() -> None:
+    sdk = SteeredSDK()
+    drone = CoDroneEdu(sdk=sdk, fence_m=5.0)
+    try:
+        drone.take_off(0.9)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        sdk.position_data[1], sdk.position_data[2] = 0.4, -0.3  # it drifts while it hovers
+        _wait_until(lambda: _off(sdk, 0.0, 0.0) < 0.08)
+        assert drone.state().phase == "hovering"
+    finally:
+        drone.close()
+
+
+def test_a_leg_that_overshoots_is_stopped_and_brought_back_to_its_fixed_end() -> None:
+    sdk = SteeredSDK()
+    drone = CoDroneEdu(sdk=sdk, fence_m=5.0)
+    try:
+        drone.take_off(0.9)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        began = time.time()
+        drone.move_horizontal(0.42, -0.42)  # ahead and to the left
+        _wait_until(lambda: any(name == "position" for name, _ in sdk.calls))
+        _wait_until(lambda: drone.state().phase == "hovering")
+        # Cut off on the measured distance, well inside the 2.2 s the leg is allowed.
+        assert time.time() - began < 1.5
+        _wait_until(lambda: _off(sdk, 0.42, 0.42) < 0.08)
+    finally:
+        drone.close()
+
+
+def test_an_up_heard_mid_climb_is_added_to_the_climb_under_way() -> None:
+    sdk = FakeCoDroneSDK(height_m=0.4)
+    drone = CoDroneEdu(sdk=sdk)
+    try:
+        drone.take_off(0.4)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        goal = drone.state().target_m + 0.3
+        drone.move_vertical(0.1)
+        drone.move_vertical(0.1)
+        drone.move_vertical(0.1)
+        assert drone.state().target_m == pytest.approx(goal)
+        _wait_until(lambda: abs(sdk.height_m - goal) <= 0.05 and drone.state().phase == "hovering")
     finally:
         drone.close()

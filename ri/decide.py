@@ -9,7 +9,8 @@
 * The route is fixed. An arm signal releases its next leg only when it is
   the signal that leg asks for; it never steers, and once the route is flown
   no wave moves the drone at all.
-* A clap wakes a sleeping drone; each up is one step higher.
+* A clap wakes a sleeping drone; each up is one step higher, and an up
+  heard while it is still climbing is added to that climb.
 * When a land and a word arrive together, the land wins and the word is
   recorded as having lost. That rule is the whole safety system.
 
@@ -127,7 +128,9 @@ class Decider:
         # Rule 3, move: one step up or down inside the flight envelope.
         if drone.airborne and word is not None and word.value in ("up", "down"):
             self._consume(word)
-            if drone.phase != "hovering":
+            # A step asked for mid-climb is added to the climb under way, so
+            # five quick "up"s are five steps, not one and four refusals.
+            if drone.phase not in ("hovering", "climbing", "descending"):
                 return Action(
                     "hold", f"{drone.phase}: wait for hover", None, (word.label(),), t=now
                 )

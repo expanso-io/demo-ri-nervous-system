@@ -16,10 +16,13 @@ from collections.abc import Callable
 log = logging.getLogger(__name__)
 
 Command = tuple[str, Callable[[], None]]
+# With nothing queued, the idle step runs this often.
+IDLE_S = 0.05
 
 
 class CommandWorker:
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, idle: Callable[[], None] | None = None) -> None:
+        self._idle = idle
         self._queue: queue.Queue[Command | None] = queue.Queue()
         self._thread = threading.Thread(target=self._run, name=f"{name}-sdk", daemon=True)
         self._thread.start()
@@ -38,7 +41,15 @@ class CommandWorker:
 
     def _run(self) -> None:
         while True:
-            item = self._queue.get()
+            try:
+                item = self._queue.get(timeout=IDLE_S if self._idle else None)
+            except queue.Empty:
+                try:
+                    if self._idle is not None:
+                        self._idle()
+                except Exception:
+                    log.exception("drone idle step failed")
+                continue
             if item is None:
                 return
             label, call = item

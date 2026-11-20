@@ -1185,7 +1185,7 @@ function apply(snapshot) {
           const hands = snapshot.latest?.hands;
           const loud = sense !== "hands" || hands?.up >= WAIT_HANDS;
           spawn(`imp-${sense}`, {
-            speed: 1.05,
+            speed: 3.4,
             color: sense === "hands" && hands?.up >= LAND_HANDS ? COLORS.err : COLORS.ember,
             size: loud ? 8 : 4,
             alpha: loud ? 0.95 : 0.7,
@@ -1201,7 +1201,7 @@ function apply(snapshot) {
 
         if (cmd) {
           spawn("act", {
-            speed: 1.0,
+            speed: 3.4,
             color: ACT_COLOR[actItem?.act] ?? COLORS.ember,
             size: 9,
             alpha: 0.95,

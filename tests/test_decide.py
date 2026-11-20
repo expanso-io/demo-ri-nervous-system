@@ -214,7 +214,7 @@ def test_one_stray_hand_is_not_a_vote_in_progress() -> None:
     assert (action.act, action.because, action.waiting) == ("hold", "no instruction", False)
 
 
-@pytest.mark.parametrize("phase", ["taking_off", "climbing", "descending"])
+@pytest.mark.parametrize("phase", ["taking_off", "cruising"])
 def test_move_holds_until_hovering(phase: Phase) -> None:
     d = Decider()
     d.observe(word("up"))
@@ -300,3 +300,11 @@ def test_a_clap_heard_during_a_landing_does_not_wake_the_drone_when_it_lands() -
     d.observe(clap(t=NOW, conf=0.99, seq=5))
     assert d.decide(drone("landing", 0.0), NOW).act == "hold"
     assert d.decide(drone("parked", 0.0), NOW + 1.0).act == "hold"
+
+
+@pytest.mark.parametrize("phase", ["climbing", "descending"])
+def test_an_up_heard_mid_climb_is_a_step_not_a_refusal(phase: Phase) -> None:
+    d = Decider()
+    d.observe(word("up"))
+    action = d.decide(drone(phase, 0.6), NOW)
+    assert (action.act, action.because) == ("up", "word up")
