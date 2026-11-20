@@ -385,7 +385,7 @@ def test_codrone_stops_steering_sideways_when_steering_makes_it_worse() -> None:
             return self.position_data
 
     sdk = RunawaySDK()
-    drone = CoDroneEdu(sdk=sdk)
+    drone = CoDroneEdu(sdk=sdk, fence_m=1e9)
     try:
         drone.take_off(WAKE_ALTITUDE_M)
         _wait_until(lambda: drone.state().phase == "hovering")
@@ -451,3 +451,96 @@ def test_codrone_shows_down_as_soon_as_it_is_down_and_lands_once_per_stop() -> N
     finally:
         sdk.release.set()
         drone.close()
+
+
+class PositionedSDK(FakeCoDroneSDK):
+    """Reports where it is and, like the airframe, whether it is flying."""
+
+    def __init__(self, *, height_m: float = 0.9) -> None:
+        super().__init__(height_m=height_m)
+        self.timeStartProgram = time.time()
+        self.position_data = [0.0, 0.0, 0.0, 0.0]
+        self.state_data: list[Any] = [0.0, None, None]
+        self.mode = "Flight"
+        self.deaf = False
+
+    def get_position_data(self) -> list[float]:
+        self.position_data[0] = time.time() - self.timeStartProgram
+        return self.position_data
+
+    def get_state_data(self) -> list[Any]:
+        class Mode:
+            name = self.mode
+
+        self.state_data[0] = time.time() - self.timeStartProgram
+        self.state_data[2] = Mode()
+        return self.state_data
+
+    def set_roll(self, pct: int) -> None:
+        pass
+
+    def set_pitch(self, pct: int) -> None:
+        pass
+
+    def move(self, seconds: float) -> None:
+        if self.deaf:
+            self.calls.append(("move", (seconds,)))
+            return
+        super().move(seconds)
+
+
+def test_codrone_lands_when_it_is_past_the_fence_whatever_it_was_told() -> None:
+    sdk = PositionedSDK()
+    drone = CoDroneEdu(sdk=sdk, fence_m=1.35)
+    try:
+        drone.take_off(0.9)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        sdk.position_data[1] = 1.2  # inside the fence: carries on
+        assert drone.state().phase == "hovering"
+        sdk.position_data[1], sdk.position_data[2] = 1.2, 0.9  # 1.5 m out
+        _wait_until(lambda: drone.state().phase in ("landing", "parked"))
+        _wait_until(lambda: any(name == "land" for name, _ in sdk.calls))
+    finally:
+        drone.close()
+
+
+def test_codrone_stops_climbing_when_the_height_does_not_answer() -> None:
+    # Over a bed the sensor reads the bed: the reading stays low however hard it climbs.
+    sdk = PositionedSDK(height_m=0.4)
+    drone = CoDroneEdu(sdk=sdk, fence_m=5.0)
+    try:
+        drone.take_off(0.4)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        sdk.deaf = True
+        sdk.calls.clear()
+        began = time.monotonic()
+        drone.move_vertical(0.5)
+        _wait_until(lambda: any(name == "hover" for name, _ in sdk.calls))
+        assert time.monotonic() - began < 4.0
+        assert sdk.throttle == 0
+    finally:
+        drone.close()
+
+
+def test_codrone_low_reading_does_not_park_a_drone_that_says_it_is_flying() -> None:
+    sdk = PositionedSDK()
+    drone = CoDroneEdu(sdk=sdk, grounded_s=0.2, fence_m=5.0)
+    try:
+        drone.take_off(0.9)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        sdk.height_m = 0.05  # it has drifted over a bed
+        deadline = time.monotonic() + 0.6
+        while time.monotonic() < deadline:
+            assert drone.state().phase == "hovering"
+            time.sleep(0.02)
+        sdk.mode = "Ready"  # now it really is down
+        _wait_until(lambda: drone.state().phase == "parked")
+    finally:
+        drone.close()
+
+
+def test_the_fence_is_just_past_the_end_of_the_route() -> None:
+    from ri.room import ROOMS
+
+    assert ROOMS["small"].fence_m == pytest.approx(1.35)
+    assert ROOMS["large"].fence_m == pytest.approx(1.91)

@@ -32,10 +32,19 @@ class Room:
         """Where the drone sits after the five ups of the show."""
         return round(self.wake_m + UPS * self.step_m, 3)
 
+    @property
+    def fence_m(self) -> float:
+        """Further than this from where it took off, the drone lands.
+
+        The two legs end `leg_m` times root two ahead; half a metre is slack.
+        """
+        return round(self.leg_m * 2**0.5 + 0.5, 2)
+
     def summary(self) -> str:
         return (
             f"{self.name}: lift {self.wake_m:.1f} m, climb to {self.top_m:.1f} m, "
-            f"ceiling {self.ceiling_m:.1f} m, legs {self.leg_m:.1f} m"
+            f"ceiling {self.ceiling_m:.1f} m, legs {self.leg_m:.1f} m, "
+            f"lands {self.fence_m:.1f} m from take-off"
         )
 
 

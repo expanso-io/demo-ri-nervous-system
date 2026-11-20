@@ -25,6 +25,7 @@ from ri.drone import (
     clamp_altitude,
 )
 from ri.drone.threaded import CommandWorker
+from ri.room import current as current_room
 
 log = logging.getLogger("ri.drone.codrone")
 # At or below this the drone is on the floor and its motors may be cut.
@@ -55,6 +56,13 @@ SPOT_TOLERANCE_M = 0.03
 SPOT_MAX_M = 1.2
 WORSE_M = 0.35
 GYRO_RESET_S = 6.0
+# A climb that has not lifted the reading by this much in this long is flying
+# blind: the height is being read off something else, a bed or a table.
+DEAF_S = 1.5
+DEAF_M = 0.05
+# The reading jumping this far between two looks means the floor changed.
+STEP_M = 0.3
+FLYING_MODES = frozenset({"TakeOff", "Flight", "Landing", "Flip", "Reverse"})
 # A landing drone that has read the floor this long is shown as down.
 LANDED_S = 1.0
 BLIND_S = 1.0
@@ -81,12 +89,15 @@ class CoDroneEdu:
         port_name: str | None = None,
         settle_s: float = 10.0,
         grounded_s: float = 3.0,
+        fence_m: float | None = None,
     ) -> None:
+        self._fence_m = current_room().fence_m if fence_m is None else fence_m
         self._settle_s = settle_s
         self._grounded_s = grounded_s
         self._floor_since: float | None = None
         self._land_owed = False
         self._land_sent = False
+        self._aloft = False
         self._abort = threading.Event()
         if sdk is None:
             try:
@@ -139,8 +150,10 @@ class CoDroneEdu:
             self._abort.clear()
             self._drone.takeoff()
             height = self._height()
-            if height is None or height <= GROUND_M:
-                # No height, or still on the floor: it did not lift.
+            flying = self._flying()
+            lifted = flying if flying is not None else (height is not None and height > GROUND_M)
+            if not lifted:
+                # Still on the floor, by its own word or by its height.
                 log.warning("take-off did not lift (height %s): parked", height)
                 with contextlib.suppress(Exception):
                     self._drone.land()
@@ -228,6 +241,10 @@ class CoDroneEdu:
         if not (self._phase == "hovering" or landed) or self._altitude > GROUND_M:
             self._floor_since = None
             return
+        if not landed and self._aloft:
+            # It says it is flying: a low reading is a bed or a table under it.
+            self._floor_since = None
+            return
         if self._floor_since is None:
             self._floor_since = now
         elif landed and now - self._floor_since >= LANDED_S:
@@ -294,6 +311,36 @@ class CoDroneEdu:
             return None
         return time.time() - float(started) - float(data[0])
 
+    def _flying(self) -> bool | None:
+        """Whether the drone itself says it is in the air, or None if it cannot say."""
+        if not hasattr(self._drone, "get_state_data"):
+            return None
+        try:
+            mode = self._drone.get_state_data()[2]
+        except Exception:
+            log.debug("flight mode read failed", exc_info=True)
+            return None
+        age = self._age_of("state_data")
+        name = getattr(mode, "name", None)
+        if age is None or age > STALE_S or name is None:
+            return None
+        return name in FLYING_MODES
+
+    def _keep_inside_the_fence(self) -> None:
+        """Land a drone that is further from its take-off point than the room allows.
+
+        Whatever it was told, and however many times: past the fence it comes down.
+        """
+        with self._lock:
+            flying = self._phase in AIRBORNE
+        here = self._position() if flying else None
+        if here is None:
+            return
+        off = (here[0] ** 2 + here[1] ** 2) ** 0.5
+        if off > self._fence_m:
+            log.warning("%.2f m from take-off, past the %.2f m fence: landing", off, self._fence_m)
+            self.land()
+
     def _position(self) -> tuple[float, float] | None:
         """Metres ahead and to the left of the take-off point, if it is fresh."""
         if not hasattr(self._drone, "get_position_data"):
@@ -352,6 +399,7 @@ class CoDroneEdu:
         settled_since: float | None = None
         blind_since: float | None = None
         last: tuple[float, float] | None = None
+        climb_from = (began, start)
         speed = 0.0
         hold = spot if spot is not None else self._position()
         first_off: float | None = None
@@ -374,9 +422,17 @@ class CoDroneEdu:
                 else:
                     blind_since = None
                     if last is not None:
+                        if abs(height - last[1]) > STEP_M:
+                            outcome = "the floor changed under it"
+                            break
                         rate = (height - last[1]) / max(now - last[0], STEER_S)
                         speed = 0.6 * speed + 0.4 * rate
                     last = (now, height)
+                    if height > climb_from[1] + DEAF_M or goal - height < DEAF_M:
+                        climb_from = (now, height)
+                    elif now - climb_from[0] >= DEAF_S:
+                        outcome = "the height did not answer the climb"
+                        break
                     error = goal - height
                     if abs(error) <= HEIGHT_TOLERANCE_M:
                         settled_since = settled_since or now
@@ -473,11 +529,14 @@ class CoDroneEdu:
             altitude = float(self._drone.get_height("m"))
             battery: int | None = int(self._drone.get_battery())
             age = self._reading_age()
+            aloft = self._flying() is True
             with self._lock:
                 self._altitude = max(0.0, altitude)
                 self._battery = battery
+                self._aloft = aloft
                 if age is None or age <= STALE_S:
                     self._notice_the_floor(time.monotonic())
+            self._keep_inside_the_fence()
         except Exception:
             log.debug("codrone telemetry poll failed", exc_info=True)
         with self._lock:
