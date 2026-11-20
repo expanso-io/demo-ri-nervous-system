@@ -40,10 +40,10 @@ CEILING_SLACK_M = 0.15
 HEIGHT_TOLERANCE_M = 0.05
 # On the airframe throttle 30 climbed at about 5 cm a second: a 0.1 m step
 # took four seconds. These are sized to make a step in about one.
-THROTTLE_PER_M = 400.0
-CLIMB_MAX = 70
-SINK_MAX = 35
-THROTTLE_MIN = 30
+THROTTLE_PER_M = 600.0
+CLIMB_MAX = 100
+SINK_MAX = 40
+THROTTLE_MIN = 40
 # The height has to sit on the goal this long: passing through it is not arriving.
 SETTLED_S = 0.15
 # Throttle taken off per metre a second of measured climb, so it brakes early.
@@ -59,6 +59,11 @@ SPOT_MAX_M = 1.2
 WORSE_M = 0.6
 # A hovering drone is leaned back over its spot once it is this far off it.
 STATION_SLACK_M = 0.06
+# It sagged 5 to 8 cm each time the throttle was let go. A hovering drone
+# this far under its height is lifted back; further under than TRIM_MAX_M
+# the reading is of something else, and is left alone.
+TRIM_SLACK_M = 0.04
+TRIM_MAX_M = 0.3
 # The airframe's own take-off is waited out only as long as it really takes.
 LIFT_OFF_S = 4.0
 GYRO_RESET_S = 6.0
@@ -449,25 +454,34 @@ class CoDroneEdu:
             return
         if not hasattr(self._drone, "set_roll"):
             return
+        power = 0
+        height = self._height()
+        short = None if height is None else self._target - height
+        if short is not None and TRIM_SLACK_M < abs(short) <= TRIM_MAX_M:
+            power = round(max(-SINK_MAX, min(CLIMB_MAX, short * THROTTLE_PER_M)))
+        pitch, roll = 0, 0
         here = self._position()
-        if here is None:
+        if here is not None:
+            ahead, left = here[0] - station[0], here[1] - station[1]
+            off = (ahead**2 + left**2) ** 0.5
+            if off > WORSE_M:
+                if not self._station_lost:
+                    self._station_lost = True
+                    log.warning("%.2f m off its spot while hovering: not steered", off)
+            else:
+                self._station_lost = False
+                if off > STATION_SLACK_M:
+                    pitch = round(max(-TILT_MAX, min(TILT_MAX, -ahead * TILT_PER_M)))
+                    roll = round(max(-TILT_MAX, min(TILT_MAX, left * TILT_PER_M)))
+        if not (power or pitch or roll):
             return
-        ahead, left = here[0] - station[0], here[1] - station[1]
-        off = (ahead**2 + left**2) ** 0.5
-        if off > WORSE_M:
-            if not self._station_lost:
-                self._station_lost = True
-                log.warning("%.2f m off its spot while hovering: not steered", off)
-            return
-        self._station_lost = False
-        if off <= STATION_SLACK_M:
-            return
-        self._drone.set_pitch(round(max(-TILT_MAX, min(TILT_MAX, -ahead * TILT_PER_M))))
-        self._drone.set_roll(round(max(-TILT_MAX, min(TILT_MAX, left * TILT_PER_M))))
-        self._drone.set_throttle(0)
+        self._drone.set_pitch(pitch)
+        self._drone.set_roll(roll)
+        self._drone.set_throttle(power)
         self._drone.move(STEER_S)
         self._drone.set_pitch(0)
         self._drone.set_roll(0)
+        self._drone.set_throttle(0)
 
     def _fly_to(self, goal_m: float, spot: tuple[float, float] | None = None) -> None:
         """Climb or sink to `goal_m` over one spot, steering on what is measured.
