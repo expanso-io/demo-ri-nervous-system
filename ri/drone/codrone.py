@@ -55,6 +55,8 @@ SPOT_TOLERANCE_M = 0.03
 SPOT_MAX_M = 1.2
 WORSE_M = 0.35
 GYRO_RESET_S = 6.0
+# A landing drone that has read the floor this long is shown as down.
+LANDED_S = 1.0
 BLIND_S = 1.0
 # A reading older than this is the last thing a silent drone said, not a height.
 STALE_S = 1.0
@@ -83,6 +85,8 @@ class CoDroneEdu:
         self._settle_s = settle_s
         self._grounded_s = grounded_s
         self._floor_since: float | None = None
+        self._land_owed = False
+        self._land_sent = False
         self._abort = threading.Event()
         if sdk is None:
             try:
@@ -156,16 +160,31 @@ class CoDroneEdu:
     def land(self) -> None:
         self._abort.set()
         self._target = 0.0
-        self._set_phase("landing")
+        with self._lock:
+            if self._land_owed:
+                # One landing is already on its way: a second stop adds nothing,
+                # and queueing it would hold "landing" on the board for longer.
+                return
+            self._land_owed = True
+            self._land_sent = False
+            self._phase = "landing"
 
         def run() -> None:
-            self._drone.land()
-            self._stop_props_on_the_ground()
-            self._leds = Leds("green", "breathing")
-            with contextlib.suppress(Exception):
-                r, g, b = RGB["green"]
-                self._drone.set_drone_LED(r, g, b, 100)
-            self._set_phase("parked")
+            try:
+                self._land_sent = True
+                # Blocks for 4 to 8 s whatever the drone does. The board does
+                # not wait for it: see _notice_the_floor.
+                self._drone.land()
+                self._stop_props_on_the_ground()
+                self._leds = Leds("green", "breathing")
+                with contextlib.suppress(Exception):
+                    r, g, b = RGB["green"]
+                    self._drone.set_drone_LED(r, g, b, 100)
+            finally:
+                with self._lock:
+                    self._land_owed = False
+                    if self._phase == "landing":
+                        self._phase = "parked"
 
         self._worker.submit("land", run, preempt=True)
 
@@ -205,12 +224,17 @@ class CoDroneEdu:
         picked up, unplugged, or lands on a low battery would otherwise be
         "hovering" for ever and ignore every wake. Called with the lock held.
         """
-        if self._phase != "hovering" or self._altitude > GROUND_M:
+        landed = self._phase == "landing" and self._land_sent
+        if not (self._phase == "hovering" or landed) or self._altitude > GROUND_M:
             self._floor_since = None
             return
         if self._floor_since is None:
             self._floor_since = now
-        elif now - self._floor_since >= self._grounded_s:
+        elif landed and now - self._floor_since >= LANDED_S:
+            # Down already: say so now, while the SDK finishes its own wait.
+            self._phase = "parked"
+            self._floor_since = None
+        elif not landed and now - self._floor_since >= self._grounded_s:
             log.warning("hovering but on the floor for %.0f s: parked", self._grounded_s)
             self._phase = "parked"
             self._target = 0.0
@@ -448,10 +472,12 @@ class CoDroneEdu:
         try:
             altitude = float(self._drone.get_height("m"))
             battery: int | None = int(self._drone.get_battery())
+            age = self._reading_age()
             with self._lock:
                 self._altitude = max(0.0, altitude)
                 self._battery = battery
-                self._notice_the_floor(time.monotonic())
+                if age is None or age <= STALE_S:
+                    self._notice_the_floor(time.monotonic())
         except Exception:
             log.debug("codrone telemetry poll failed", exc_info=True)
         with self._lock:

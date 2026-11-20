@@ -412,3 +412,42 @@ def test_codrone_zeroes_its_gyro_only_when_asked() -> None:
         assert any(name == "reset_gyro" for name, _ in sdk.calls)
     finally:
         drone.close()
+
+
+def test_codrone_shows_down_as_soon_as_it_is_down_and_lands_once_per_stop() -> None:
+    import threading
+
+    class SlowLandSDK(FakeCoDroneSDK):
+        """Like the real SDK, land() does not return for seconds."""
+
+        def __init__(self) -> None:
+            super().__init__(height_m=0.9)
+            self.release = threading.Event()
+
+        def land(self) -> None:
+            self.calls.append(("land", ()))
+            self.height_m = 0.02
+            self.release.wait(10.0)
+
+    sdk = SlowLandSDK()
+    drone = CoDroneEdu(sdk=sdk)
+    try:
+        drone.take_off(0.9)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        began = time.monotonic()
+        for _ in range(6):  # a presenter leaning on Esc
+            drone.land()
+        assert drone.state().phase == "landing"
+        _wait_until(lambda: drone.state().phase == "parked")
+        assert time.monotonic() - began < 3.0
+        assert not sdk.release.is_set()  # shown as down while the SDK still waits
+        sdk.release.set()
+        time.sleep(0.5)
+        assert [name for name, _ in sdk.calls].count("land") == 1
+        assert drone.state().phase == "parked"
+        # Once that landing is over, a new stop sends a new one.
+        drone.land()
+        _wait_until(lambda: [name for name, _ in sdk.calls].count("land") == 2)
+    finally:
+        sdk.release.set()
+        drone.close()
