@@ -544,3 +544,38 @@ def test_the_fence_is_just_past_the_end_of_the_route() -> None:
 
     assert ROOMS["small"].fence_m == pytest.approx(1.35)
     assert ROOMS["large"].fence_m == pytest.approx(1.91)
+
+
+def test_codrone_stops_waiting_for_take_off_the_moment_it_is_flying() -> None:
+    class QuickSDK(PositionedSDK):
+        def __init__(self) -> None:
+            super().__init__()
+            self.mode = "Ready"
+            self.sent = 0
+
+        def reset_move_values(self) -> None:
+            self.calls.append(("reset_move_values", ()))
+
+        def sendTakeOff(self) -> None:
+            self.sent += 1
+            if self.sent == 2:
+                self.mode = "TakeOff"
+                self.flying_at = time.monotonic() + 0.3
+
+        def get_state_data(self) -> list[Any]:
+            if self.mode == "TakeOff" and time.monotonic() >= self.flying_at:
+                self.mode = "Flight"
+            return super().get_state_data()
+
+    sdk = QuickSDK()
+    drone = CoDroneEdu(sdk=sdk, fence_m=5.0)
+    try:
+        began = time.monotonic()
+        drone.take_off(0.9)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        # Nowhere near the SDK's flat four-second wait, and its take-off is not used.
+        assert time.monotonic() - began < 3.0
+        assert not any(name == "takeoff" for name, _ in sdk.calls)
+        assert sdk.sent == 2
+    finally:
+        drone.close()

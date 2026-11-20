@@ -48,13 +48,15 @@ SETTLED_S = 0.5
 BRAKE_PER_MPS = 40.0
 STEER_S = 0.05
 # While the height is steered, the drone is also steered back over one spot.
-TILT_PER_M = 60.0
-TILT_MAX = 12
+TILT_PER_M = 70.0
+TILT_MAX = 18
 SPOT_TOLERANCE_M = 0.03
 # Further off than this the position reading is not believed, and a drone
 # that gets this much further from its spot while steered is steered no more.
 SPOT_MAX_M = 1.2
-WORSE_M = 0.35
+WORSE_M = 0.6
+# The airframe's own take-off is waited out only as long as it really takes.
+LIFT_OFF_S = 4.0
 GYRO_RESET_S = 6.0
 # A climb that has not lifted the reading by this much in this long is flying
 # blind: the height is being read off something else, a bed or a table.
@@ -148,7 +150,7 @@ class CoDroneEdu:
 
         def run() -> None:
             self._abort.clear()
-            self._drone.takeoff()
+            self._lift_off()
             height = self._height()
             flying = self._flying()
             lifted = flying if flying is not None else (height is not None and height > GROUND_M)
@@ -169,6 +171,32 @@ class CoDroneEdu:
                     self._phase = "hovering"
 
         self._worker.submit("take_off", run)
+
+    def _lift_off(self) -> None:
+        """Take off, and hand over the moment the drone says it is flying.
+
+        The SDK's own take-off then waits a flat four seconds with nobody
+        steering, and the drone slides the whole time. This sends the same
+        command and stops waiting as soon as the take-off is over, so the
+        lean back over the take-off point starts seconds earlier.
+        """
+        sdk = self._drone
+        if not all(hasattr(sdk, n) for n in ("sendTakeOff", "get_state_data", "reset_move_values")):
+            sdk.takeoff()
+            return
+        sdk.reset_move_values()
+        began = time.monotonic()
+        seen_taking_off = False
+        while time.monotonic() - began < 2 * LIFT_OFF_S and not self._abort.is_set():
+            mode = getattr(sdk.get_state_data()[2], "name", "")
+            if mode == "TakeOff":
+                seen_taking_off = True
+            elif mode == "Flight":
+                break
+            elif not seen_taking_off and time.monotonic() - began < LIFT_OFF_S:
+                sdk.sendTakeOff()
+            time.sleep(0.02)
+        log.info("take-off over in %.1f s", time.monotonic() - began)
 
     def land(self) -> None:
         self._abort.set()
@@ -472,12 +500,13 @@ class CoDroneEdu:
             self._drone.set_throttle(0)
             self._drone.hover(0.3)
         log.info(
-            "height %.2f -> %s m (goal %.2f, %s in %.1f s, up to %.2f m off its spot)",
+            "height %.2f -> %s m (goal %.2f, %s in %.1f s; off its spot %s at first, %.2f at most)",
             start,
             self._height(),
             goal,
             outcome,
             time.monotonic() - began,
+            "unknown" if first_off is None else f"{first_off:.2f}",
             furthest,
         )
 
