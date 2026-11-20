@@ -624,6 +624,8 @@ def test_codrone_leans_a_hovering_drone_back_over_its_spot() -> None:
         sdk.position_data[1], sdk.position_data[2] = 0.4, -0.3  # it drifts while it hovers
         _wait_until(lambda: _off(sdk, 0.0, 0.0) < 0.08)
         assert drone.state().phase == "hovering"
+        # Every nudge ends on a level stick: the airframe flies the last one it was sent.
+        assert ("hover", (0.02,)) in sdk.calls
     finally:
         drone.close()
 
@@ -657,21 +659,5 @@ def test_an_up_heard_mid_climb_is_added_to_the_climb_under_way() -> None:
         drone.move_vertical(0.1)
         assert drone.state().target_m == pytest.approx(goal)
         _wait_until(lambda: abs(sdk.height_m - goal) <= 0.05 and drone.state().phase == "hovering")
-    finally:
-        drone.close()
-
-
-def test_a_hovering_drone_that_sags_is_lifted_back_but_a_changed_floor_is_not() -> None:
-    sdk = SteeredSDK()
-    drone = CoDroneEdu(sdk=sdk, fence_m=5.0)
-    try:
-        drone.take_off(0.9)
-        _wait_until(lambda: drone.state().phase == "hovering")
-        goal = drone.state().target_m
-        sdk.height_m = goal - 0.08  # it sags when the throttle is let go
-        _wait_until(lambda: abs(sdk.height_m - goal) <= 0.04)
-        sdk.height_m = goal - 0.6  # a bed slid under it: not a height to chase
-        time.sleep(0.4)
-        assert sdk.height_m == pytest.approx(goal - 0.6)
     finally:
         drone.close()

@@ -38,16 +38,17 @@ CEILING_SLACK_M = 0.15
 # Height is steered on the measured height: throttle in proportion to what is
 # left to go, gentle on the way down, until the reading sits on the goal.
 HEIGHT_TOLERANCE_M = 0.05
-# On the airframe throttle 30 climbed at about 5 cm a second: a 0.1 m step
-# took four seconds. These are sized to make a step in about one.
-THROTTLE_PER_M = 600.0
-CLIMB_MAX = 100
-SINK_MAX = 40
-THROTTLE_MIN = 40
+# Measured on the airframe: capped at throttle 30 it climbed about 6 cm a
+# second and a step took four seconds; capped at 100 it climbed 0.5 m a
+# second and swung 15 cm past every goal. These sit between the two.
+THROTTLE_PER_M = 250.0
+CLIMB_MAX = 55
+SINK_MAX = 30
+THROTTLE_MIN = 30
 # The height has to sit on the goal this long: passing through it is not arriving.
-SETTLED_S = 0.15
+SETTLED_S = 0.3
 # Throttle taken off per metre a second of measured climb, so it brakes early.
-BRAKE_PER_MPS = 60.0
+BRAKE_PER_MPS = 100.0
 STEER_S = 0.05
 # While the height is steered, the drone is also steered back over one spot.
 TILT_PER_M = 70.0
@@ -59,11 +60,8 @@ SPOT_MAX_M = 1.2
 WORSE_M = 0.6
 # A hovering drone is leaned back over its spot once it is this far off it.
 STATION_SLACK_M = 0.06
-# It sagged 5 to 8 cm each time the throttle was let go. A hovering drone
-# this far under its height is lifted back; further under than TRIM_MAX_M
-# the reading is of something else, and is left alone.
-TRIM_SLACK_M = 0.04
-TRIM_MAX_M = 0.3
+# Under this height its own take-off is still lifting it and it is left alone.
+LIFTED_M = 0.25
 # The airframe's own take-off is waited out only as long as it really takes.
 LIFT_OFF_S = 4.0
 GYRO_RESET_S = 6.0
@@ -209,7 +207,20 @@ class CoDroneEdu:
             elif not seen_taking_off and time.monotonic() - began < LIFT_OFF_S:
                 sdk.sendTakeOff()
             time.sleep(0.02)
-        log.info("take-off over in %.1f s", time.monotonic() - began)
+        said = time.monotonic() - began
+        # It says it is flying while it is still on the floor spinning up.
+        # Throttle sent then is ignored, so wait until it has really lifted.
+        while time.monotonic() - began < LIFT_OFF_S and not self._abort.is_set():
+            height = self._height()
+            if height is not None and height >= LIFTED_M:
+                break
+            time.sleep(0.02)
+        log.info(
+            "take-off: flying after %.1f s, at %s m after %.1f s",
+            said,
+            self._height(),
+            time.monotonic() - began,
+        )
 
     def land(self) -> None:
         self._abort.set()
@@ -407,6 +418,8 @@ class CoDroneEdu:
         """
         distance = (ahead_m**2 + left_m**2 + up_m**2) ** 0.5
         began = self._position()
+        # A level stick first, so no earlier command is still being flown.
+        self._drone.hover(0.05)
         for _ in range(3):
             self._drone.sendControlPosition(
                 float(ahead_m), float(left_m), float(up_m), MOVE_SPEED, 0, 0
@@ -454,11 +467,6 @@ class CoDroneEdu:
             return
         if not hasattr(self._drone, "set_roll"):
             return
-        power = 0
-        height = self._height()
-        short = None if height is None else self._target - height
-        if short is not None and TRIM_SLACK_M < abs(short) <= TRIM_MAX_M:
-            power = round(max(-SINK_MAX, min(CLIMB_MAX, short * THROTTLE_PER_M)))
         pitch, roll = 0, 0
         here = self._position()
         if here is not None:
@@ -473,15 +481,17 @@ class CoDroneEdu:
                 if off > STATION_SLACK_M:
                     pitch = round(max(-TILT_MAX, min(TILT_MAX, -ahead * TILT_PER_M)))
                     roll = round(max(-TILT_MAX, min(TILT_MAX, left * TILT_PER_M)))
-        if not (power or pitch or roll):
+        if not (pitch or roll):
             return
         self._drone.set_pitch(pitch)
         self._drone.set_roll(roll)
-        self._drone.set_throttle(power)
+        self._drone.set_throttle(0)
         self._drone.move(STEER_S)
         self._drone.set_pitch(0)
         self._drone.set_roll(0)
-        self._drone.set_throttle(0)
+        # The airframe keeps flying the last stick it was sent. Every nudge
+        # is followed by a level stick, or one nudge becomes a slide.
+        self._drone.hover(0.02)
 
     def _fly_to(self, goal_m: float, spot: tuple[float, float] | None = None) -> None:
         """Climb or sink to `goal_m` over one spot, steering on what is measured.
