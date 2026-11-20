@@ -59,7 +59,15 @@ def stop(job: str) -> None:
 
 
 def rerun(job: str) -> None:
-    cli("job", "rerun", job)
+    """Start a deployed job. One that `just down` deleted is deployed again first."""
+    out = cli("job", "rerun", job, check=False)
+    if out.returncode == 0:
+        return
+    text = out.stderr or out.stdout
+    if "NOT_FOUND" not in text and "not found" not in text:
+        raise RuntimeError(f"expanso-cli job rerun: {text[-400:]}")
+    print(f"  {job}: not in Expanso Cloud, deploying it: {deploy(job)}")
+    cli("job", "rerun", job, check=False)
 
 
 def delete(job: str) -> None:

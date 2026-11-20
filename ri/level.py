@@ -23,7 +23,7 @@ def rig_is_up() -> bool:
 
 def main() -> int:
     if rig_is_up():
-        print("the rig is running and holds the drone's radio: `just down` first")
+        print("the rig is still running and holds the drone's radio: run `just level` again")
         return 1
     from ri.drone.codrone import CoDroneEdu
 

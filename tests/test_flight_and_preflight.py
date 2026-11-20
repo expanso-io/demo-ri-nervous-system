@@ -499,3 +499,22 @@ def test_a_camera_preference_list_takes_the_first_one_plugged_in() -> None:
     assert capture.resolve_camera_source(DEFAULT_CAMERA, [builtin, old]) == old
     with pytest.raises(RuntimeError, match="OBSBOT Tiny 2 Lite"):
         capture.resolve_camera_source(DEFAULT_CAMERA, [builtin])
+
+
+def test_starting_a_job_that_was_deleted_deploys_it_again(monkeypatch: Any) -> None:
+    import subprocess
+
+    from ri import cloud
+
+    calls: list[tuple[str, ...]] = []
+
+    def fake_cli(*args: str, check: bool = True, timeout: float = 60) -> Any:
+        calls.append(args)
+        missing = args[:2] == ("job", "rerun") and ("job", "deploy") not in [c[:2] for c in calls]
+        return subprocess.CompletedProcess(
+            args, 1 if missing else 0, "", "Error = job not found: hear-clap\nCode = NOT_FOUND"
+        )
+
+    monkeypatch.setattr(cloud, "cli", fake_cli)
+    cloud.rerun("hear-clap")
+    assert [c[:2] for c in calls] == [("job", "rerun"), ("job", "deploy"), ("job", "rerun")]
