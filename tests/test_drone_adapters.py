@@ -22,7 +22,6 @@ class FakeCoDroneSDK:
         self.fail_telemetry = False
         self.throttle = 0
         self.lowest_m = height_m
-        self.lifts = True
 
     def takeoff(self) -> None:
         self.calls.append(("takeoff", ()))
@@ -317,5 +316,82 @@ def test_codrone_gives_up_a_height_move_when_the_reading_goes() -> None:
         _wait_until(lambda: drone.state().phase == "hovering")
         assert sdk.throttle == 0
         assert sdk.height_m == pytest.approx(0.9, abs=0.05)
+    finally:
+        drone.close()
+
+
+def test_codrone_leans_back_over_the_pad_while_it_finds_its_height() -> None:
+    class DriftingSDK(FakeCoDroneSDK):
+        """Comes off the pad 0.3 m ahead and 0.2 m to the left of it."""
+
+        def __init__(self) -> None:
+            super().__init__(height_m=0.9)
+            self.timeStartProgram = time.time()
+            self.position_data = [0.0, 0.3, 0.2, 0.0]
+            self.roll = 0
+            self.pitch = 0
+
+        def set_roll(self, pct: int) -> None:
+            self.roll = pct
+
+        def set_pitch(self, pct: int) -> None:
+            self.pitch = pct
+
+        def get_position_data(self) -> list[float]:
+            self.position_data[0] = time.time() - self.timeStartProgram
+            return self.position_data
+
+        def move(self, seconds: float) -> None:
+            super().move(seconds)
+            # Pitch carries it ahead, roll carries it right (so less left).
+            self.position_data[1] += self.pitch / 100 * seconds * 5
+            self.position_data[2] -= self.roll / 100 * seconds * 5
+
+    sdk = DriftingSDK()
+    drone = CoDroneEdu(sdk=sdk)
+    try:
+        drone.take_off(WAKE_ALTITUDE_M)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        assert abs(sdk.position_data[1]) < 0.1
+        assert abs(sdk.position_data[2]) < 0.1
+        assert (sdk.roll, sdk.pitch, sdk.throttle) == (0, 0, 0)
+        assert drone.state().altitude_m == pytest.approx(WAKE_ALTITUDE_M, abs=0.05)
+    finally:
+        drone.close()
+
+
+def test_codrone_stops_steering_sideways_when_steering_makes_it_worse() -> None:
+    class RunawaySDK(FakeCoDroneSDK):
+        """A floor the position sensor cannot read: the reading runs away."""
+
+        def __init__(self) -> None:
+            super().__init__(height_m=0.9)
+            self.timeStartProgram = time.time()
+            self.position_data = [0.0, 0.1, 0.0, 0.0]
+            self.tilts: list[tuple[int, int]] = []
+            self.roll = 0
+            self.pitch = 0
+
+        def set_roll(self, pct: int) -> None:
+            self.roll = pct
+
+        def set_pitch(self, pct: int) -> None:
+            self.pitch = pct
+            self.tilts.append((self.roll, pct))
+
+        def get_position_data(self) -> list[float]:
+            self.position_data[0] = time.time() - self.timeStartProgram
+            self.position_data[1] += 0.05
+            return self.position_data
+
+    sdk = RunawaySDK()
+    drone = CoDroneEdu(sdk=sdk)
+    try:
+        drone.take_off(WAKE_ALTITUDE_M)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        # It leaned for a while, then gave up leaning and still found its height.
+        assert any(tilt != (0, 0) for tilt in sdk.tilts)
+        assert sdk.tilts[-1] == (0, 0)
+        assert drone.state().altitude_m == pytest.approx(WAKE_ALTITUDE_M, abs=0.05)
     finally:
         drone.close()

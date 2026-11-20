@@ -41,8 +41,20 @@ THROTTLE_PER_M = 100.0
 CLIMB_MAX = 30
 SINK_MAX = 20
 THROTTLE_MIN = 10
-SETTLED_READS = 3
+# The height has to sit on the goal this long: passing through it is not arriving.
+SETTLED_S = 0.5
+# Throttle taken off per metre a second of measured climb, so it brakes early.
+BRAKE_PER_MPS = 40.0
 STEER_S = 0.05
+# While the height is steered, the drone is also steered back over one spot.
+TILT_PER_M = 60.0
+TILT_MAX = 12
+SPOT_TOLERANCE_M = 0.03
+# Further off than this the position reading is not believed, and a drone
+# that gets this much further from its spot while steered is steered no more.
+SPOT_MAX_M = 1.2
+WORSE_M = 0.35
+GYRO_RESET_S = 6.0
 BLIND_S = 1.0
 # A reading older than this is the last thing a silent drone said, not a height.
 STALE_S = 1.0
@@ -81,6 +93,7 @@ class CoDroneEdu:
                 ) from error
             self._drone: Any = Drone()
             self._drone.pair(port_name) if port_name else self._drone.pair()
+            self._level()
         else:
             self._drone = sdk
         self._worker = CommandWorker(self.name)
@@ -90,6 +103,27 @@ class CoDroneEdu:
         self._altitude = 0.0
         self._battery: int | None = None
         self._leds = Leds()
+
+    def _level(self) -> None:
+        """Zero the gyro while the drone sits still on the floor at start-up.
+
+        A gyro that is a little off tilts every take-off the same way. The
+        SDK call waits for the drone for ever, so it is given a few seconds.
+        """
+        done = threading.Event()
+
+        def run() -> None:
+            try:
+                self._drone.reset_gyro()
+                done.set()
+            except Exception:
+                log.warning("gyro reset failed", exc_info=True)
+
+        threading.Thread(target=run, daemon=True, name="codrone-gyro").start()
+        if done.wait(GYRO_RESET_S):
+            log.info("gyro zeroed on the floor")
+        else:
+            log.warning("gyro not zeroed in %.0f s: flying on the old calibration", GYRO_RESET_S)
 
     def _set_phase(self, phase: Phase) -> None:
         with self._lock:
@@ -113,7 +147,8 @@ class CoDroneEdu:
                     self._target = 0.0
                 return
             # The airframe picks its own take-off height; bring it to ours.
-            self._fly_to(self._target)
+            # Its position counts from the take-off point, so (0, 0) is the pad.
+            self._fly_to(self._target, spot=(0.0, 0.0))
             with self._lock:
                 if self._phase == "taking_off":
                     self._phase = "hovering"
@@ -228,11 +263,29 @@ class CoDroneEdu:
         The SDK hands back its last reading for ever once the drone is off or
         out of range, so an old reading has to be told from a fresh one.
         """
-        data = getattr(self._drone, "range_data", None)
+        return self._age_of("range_data")
+
+    def _age_of(self, name: str) -> float | None:
+        data = getattr(self._drone, name, None)
         started = getattr(self._drone, "timeStartProgram", None)
         if not isinstance(data, list) or not data or started is None:
             return None
         return time.time() - float(started) - float(data[0])
+
+    def _position(self) -> tuple[float, float] | None:
+        """Metres ahead and to the left of the take-off point, if it is fresh."""
+        if not hasattr(self._drone, "get_position_data"):
+            return None
+        try:
+            data = self._drone.get_position_data()
+            ahead, left = float(data[1]), float(data[2])
+        except Exception:
+            log.debug("position read failed", exc_info=True)
+            return None
+        age = self._age_of("position_data")
+        if age is None or age > STALE_S or max(abs(ahead), abs(left)) > 20.0:
+            return None
+        return ahead, left
 
     def _move_by(self, ahead_m: float, left_m: float, up_m: float) -> None:
         """One position move, held on line by the airframe's own position hold.
@@ -258,53 +311,97 @@ class CoDroneEdu:
                 break
         self._drone.hover(0.3)
 
-    def _fly_to(self, goal_m: float) -> None:
-        """Climb or sink to `goal_m`, steering on the measured height.
+    def _fly_to(self, goal_m: float, spot: tuple[float, float] | None = None) -> None:
+        """Climb or sink to `goal_m` over one spot, steering on what is measured.
 
-        Throttle follows what is left to go and stops when the reading sits
-        on the goal. With no reading the throttle is zero, and after a
-        second of that the move is given up. CONFIRM on the airframe.
+        Throttle follows what is left to go, less the speed it already has,
+        and the move ends once the height has sat on the goal. Roll and pitch
+        lean it back over `spot`, or over where the move began. With no
+        height reading the throttle is zero, and after a second of that the
+        move is given up. CONFIRM on the airframe.
         """
         start = self._height()
         if start is None:
             log.warning("no height reading: height move skipped")
             return
         goal = max(LOWEST_M, min(MAX_ALTITUDE_M, goal_m))
-        deadline = time.monotonic() + 4.0 + abs(goal - start) * 8.0
-        settled = 0
+        began = time.monotonic()
+        deadline = began + 5.0 + abs(goal - start) * 8.0
+        settled_since: float | None = None
         blind_since: float | None = None
+        last: tuple[float, float] | None = None
+        speed = 0.0
+        hold = spot if spot is not None else self._position()
+        first_off: float | None = None
+        furthest = 0.0
         outcome = "timed out"
         try:
             while time.monotonic() < deadline:
                 if self._abort.is_set():
                     outcome = "cut short"
                     break
+                now = time.monotonic()
                 height = self._height()
                 power = 0
                 if height is None:
-                    blind_since = blind_since or time.monotonic()
-                    if time.monotonic() - blind_since >= BLIND_S:
+                    blind_since = blind_since or now
+                    settled_since = None
+                    if now - blind_since >= BLIND_S:
                         outcome = "lost the height reading"
                         break
                 else:
                     blind_since = None
+                    if last is not None:
+                        rate = (height - last[1]) / max(now - last[0], STEER_S)
+                        speed = 0.6 * speed + 0.4 * rate
+                    last = (now, height)
                     error = goal - height
                     if abs(error) <= HEIGHT_TOLERANCE_M:
-                        settled += 1
-                        if settled >= SETTLED_READS:
+                        settled_since = settled_since or now
+                        if now - settled_since >= SETTLED_S:
                             outcome = "reached"
                             break
                     else:
-                        settled = 0
-                        power = round(max(-SINK_MAX, min(CLIMB_MAX, error * THROTTLE_PER_M)))
-                        if abs(power) < THROTTLE_MIN:
-                            power = THROTTLE_MIN if error > 0 else -THROTTLE_MIN
+                        settled_since = None
+                    wanted = error * THROTTLE_PER_M - speed * BRAKE_PER_MPS
+                    power = round(max(-SINK_MAX, min(CLIMB_MAX, wanted)))
+                    stalled = abs(error) > HEIGHT_TOLERANCE_M and abs(speed) < 0.05
+                    if stalled and abs(power) < THROTTLE_MIN:
+                        power = THROTTLE_MIN if error > 0 else -THROTTLE_MIN
+                roll, pitch = 0, 0
+                here = self._position() if hold is not None else None
+                if hold is not None and here is not None:
+                    ahead, left = here[0] - hold[0], here[1] - hold[1]
+                    off = (ahead**2 + left**2) ** 0.5
+                    first_off = off if first_off is None else first_off
+                    furthest = max(furthest, off)
+                    if off > SPOT_MAX_M or off > first_off + WORSE_M:
+                        log.warning("%.2f m off its spot while steered: steering dropped", off)
+                        hold = None
+                    elif off > SPOT_TOLERANCE_M:
+                        # Ahead is cured by pitching back, left by rolling right.
+                        pitch = round(max(-TILT_MAX, min(TILT_MAX, -ahead * TILT_PER_M)))
+                        roll = round(max(-TILT_MAX, min(TILT_MAX, left * TILT_PER_M)))
+                if hasattr(self._drone, "set_roll"):
+                    self._drone.set_roll(roll)
+                    self._drone.set_pitch(pitch)
                 self._drone.set_throttle(power)
                 self._drone.move(STEER_S)
         finally:
+            if hasattr(self._drone, "set_roll"):
+                self._drone.set_roll(0)
+                self._drone.set_pitch(0)
             self._drone.set_throttle(0)
             self._drone.hover(0.3)
-        log.info("height %.2f -> %s m (goal %.2f, %s)", start, self._height(), goal, outcome)
+        log.info(
+            "height %.2f -> %s m (goal %.2f, %s in %.1f s, up to %.2f m off its spot)",
+            start,
+            self._height(),
+            goal,
+            outcome,
+            time.monotonic() - began,
+            furthest,
+        )
 
     def move_horizontal(self, forward_m: float, right_m: float) -> None:
         with self._lock:
