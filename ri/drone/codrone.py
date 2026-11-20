@@ -93,7 +93,6 @@ class CoDroneEdu:
                 ) from error
             self._drone: Any = Drone()
             self._drone.pair(port_name) if port_name else self._drone.pair()
-            self._level()
         else:
             self._drone = sdk
         self._worker = CommandWorker(self.name)
@@ -104,11 +103,13 @@ class CoDroneEdu:
         self._battery: int | None = None
         self._leds = Leds()
 
-    def _level(self) -> None:
-        """Zero the gyro while the drone sits still on the floor at start-up.
+    def level(self) -> bool:
+        """Zero the gyro. The drone must be still on a level surface.
 
-        A gyro that is a little off tilts every take-off the same way. The
-        SDK call waits for the drone for ever, so it is given a few seconds.
+        A gyro that is a little off tilts every take-off the same way. This
+        is never done at start-up: on stage the drone sits wherever it was
+        put down, and zeroing it there would teach it that a slope is level.
+        The SDK call waits for the drone for ever, so it is given a few seconds.
         """
         done = threading.Event()
 
@@ -120,10 +121,7 @@ class CoDroneEdu:
                 log.warning("gyro reset failed", exc_info=True)
 
         threading.Thread(target=run, daemon=True, name="codrone-gyro").start()
-        if done.wait(GYRO_RESET_S):
-            log.info("gyro zeroed on the floor")
-        else:
-            log.warning("gyro not zeroed in %.0f s: flying on the old calibration", GYRO_RESET_S)
+        return done.wait(GYRO_RESET_S)
 
     def _set_phase(self, phase: Phase) -> None:
         with self._lock:

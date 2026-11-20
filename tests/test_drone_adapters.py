@@ -395,3 +395,20 @@ def test_codrone_stops_steering_sideways_when_steering_makes_it_worse() -> None:
         assert drone.state().altitude_m == pytest.approx(WAKE_ALTITUDE_M, abs=0.05)
     finally:
         drone.close()
+
+
+def test_codrone_zeroes_its_gyro_only_when_asked() -> None:
+    class GyroSDK(FakeCoDroneSDK):
+        def reset_gyro(self) -> None:
+            self.calls.append(("reset_gyro", ()))
+
+    sdk = GyroSDK(height_m=0.9)
+    drone = CoDroneEdu(sdk=sdk)
+    try:
+        drone.take_off(WAKE_ALTITUDE_M)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        assert not any(name == "reset_gyro" for name, _ in sdk.calls)
+        assert drone.level()
+        assert any(name == "reset_gyro" for name, _ in sdk.calls)
+    finally:
+        drone.close()

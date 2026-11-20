@@ -61,6 +61,10 @@ again size="" drone=default_drone cam=default_cam mic=default_mic:
     uv run python -m ri.stack up --room "{{size}}" --skip-deploy --drone {{drone}} --input live --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input live
     just ready 45
 
+# Zero the drone's gyro. Drone still on a hard, level table, rig down.
+level:
+    uv run python -m ri.level
+
 # Stop every process, free every port, delete the four Cloud jobs.
 down:
     uv run python -m ri.stack down
