@@ -684,3 +684,66 @@ def test_codrone_leds_are_full_bright_and_blink_while_a_step_is_under_way() -> N
         assert raw == {"elevation_m": 42.5, "range_m": 1.0, "pressure_pa": 101325.0}
     finally:
         drone.close()
+
+
+class _BaroSDK(FakeCoDroneSDK):
+    """A fake with a steady barometer at 50 m, plus an offset a test can raise.
+
+    It does not follow the fake's height: the fake climbs far livelier than
+    the airframe, and would read past any ceiling in a fraction of a second.
+    """
+
+    def __init__(self, **kw: Any) -> None:
+        super().__init__(**kw)
+        self.baro_offset = 0.0
+        self.throttle_log: list[tuple[float, int]] = []
+
+    def set_throttle(self, pct: int) -> None:
+        super().set_throttle(pct)
+        self.throttle_log.append((time.monotonic(), pct))
+
+    def get_altitude_data(self) -> list[float]:
+        return [0.0, 21.0, 101325.0, 50.0 + self.baro_offset, self.height_m]
+
+
+def _timed_seconds(sdk: _BaroSDK) -> float:
+    """Wall-clock seconds from the first full-throttle command to the throttle coming off."""
+    on = next(t for t, pct in sdk.throttle_log if pct == 90)
+    off = next(t for t, pct in sdk.throttle_log if pct == 0 and t > on)
+    return off - on
+
+
+def test_a_timed_up_is_full_throttle_for_its_seconds_and_another_up_adds_to_it() -> None:
+    sdk = _BaroSDK(height_m=WAKE_ALTITUDE_M)
+    drone = CoDroneEdu(sdk=sdk, timed_up=(90, 0.3))
+    try:
+        drone.take_off(WAKE_ALTITUDE_M)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        sdk.throttle_log.clear()
+        sdk.calls.clear()
+        drone.move_vertical(0.4)
+        assert drone.state().phase == "climbing"
+        drone.move_vertical(0.4)  # heard mid-climb: the same climb, longer
+        _wait_until(lambda: drone.state().phase == "hovering")
+        assert drone.state().target_m == pytest.approx(WAKE_ALTITUDE_M + 0.8)
+        assert _timed_seconds(sdk) == pytest.approx(0.6, abs=0.15)
+        assert sdk.throttle == 0
+        assert sum(1 for name, _ in sdk.calls if name == "hover") == 1
+    finally:
+        drone.close()
+
+
+def test_a_timed_up_stops_when_the_barometer_reads_past_the_ceiling() -> None:
+    sdk = _BaroSDK(height_m=WAKE_ALTITUDE_M)
+    drone = CoDroneEdu(sdk=sdk, timed_up=(90, 5.0))
+    try:
+        drone.take_off(WAKE_ALTITUDE_M)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        sdk.baro_offset = 10.0  # the barometer now says far above the ceiling
+        began = time.monotonic()
+        drone.move_vertical(0.4)
+        _wait_until(lambda: drone.state().phase == "hovering")
+        assert time.monotonic() - began < 2.0
+        assert sdk.throttle == 0
+    finally:
+        drone.close()

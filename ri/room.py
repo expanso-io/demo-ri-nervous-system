@@ -28,6 +28,9 @@ class Room:
     leg_m: float  # each diagonal leg of the route
     ups: int  # how many "up"s the show says, from the lift to the top
     climb_max: int = 55  # the most throttle a climb may use, of 100
+    # An up flown as (throttle, seconds) instead of to a measured height: for
+    # rooms taller than the height sensor can see.
+    timed_up: tuple[int, float] | None = None
 
     @property
     def top_m(self) -> float:
@@ -57,11 +60,20 @@ ROOMS: dict[str, Room] = {
     # About a king-size bed of clear floor: the two legs end 0.85 m ahead of
     # takeoff and swing 0.42 m to the left on the way.
     "small": Room("small", wake_m=0.4, step_m=0.1, ceiling_m=1.0, leg_m=0.6, ups=5),
-    # A big hall: five claps to 2 m, then each up a whole metre, climbing hard
-    # (at 100 a climb swings about 15 cm past its goal, nothing at this size).
-    # The drone's height sensor reads to about 2 m, so above that it needs
-    # another way to know its height (ri/drone/codrone.py, SENSOR_MAX_M).
-    "hall": Room("hall", wake_m=2.0, step_m=1.0, ceiling_m=4.0, leg_m=2.0, ups=2, climb_max=90),
+    # A big hall: five claps to 2 m, then each up about a metre. The height
+    # sensor reads to about 2 m, so above the lift an up is not flown to a
+    # height: it is 90% throttle for 2 s (at 100 it climbed 0.5 m a second),
+    # with the barometer as the stop if it ever reads past the ceiling.
+    "hall": Room(
+        "hall",
+        wake_m=2.0,
+        step_m=1.0,
+        ceiling_m=4.0,
+        leg_m=2.0,
+        ups=2,
+        climb_max=90,
+        timed_up=(90, 2.0),
+    ),
 }
 
 

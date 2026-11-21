@@ -85,6 +85,8 @@ STALE_S = 1.0
 LED_BLINK_SPEED = 8
 # The barometer and the range sensor are read this often for the recorder.
 RAW_EVERY_S = 0.5
+# A timed climb stops early if the barometer puts it this far over the ceiling.
+BARO_SLACK_M = 0.5
 
 RGB: dict[str, tuple[int, int, int]] = {
     "off": (0, 0, 0),
@@ -111,8 +113,15 @@ class CoDroneEdu:
         settle_s: float = 10.0,
         grounded_s: float = 3.0,
         fence_m: float | None = None,
+        timed_up: tuple[int, float] | None = None,
     ) -> None:
         self._fence_m = current_room().fence_m if fence_m is None else fence_m
+        self._timed_up = current_room().timed_up if timed_up is None else timed_up
+        self._ceiling_m = current_room().ceiling_m
+        # When the timed climb under way ends; another up pushes it later.
+        self._timed_end = 0.0
+        # The barometer on the floor at take-off: heights are counted from it.
+        self._floor_elev: float | None = None
         self._raw_at = 0.0
         self._raw_last: dict[str, float] | None = None
         self._settle_s = settle_s
@@ -174,6 +183,7 @@ class CoDroneEdu:
 
         def run() -> None:
             self._abort.clear()
+            self._floor_elev = self._elevation()
             self._lift_off()
             height = self._height()
             flying = self._flying()
@@ -332,7 +342,88 @@ class CoDroneEdu:
 
         self._worker.submit("hover", run)
 
+    def _elevation(self) -> float | None:
+        """The barometer, in metres above sea level, or None."""
+        try:
+            return float(self._drone.get_altitude_data()[3])
+        except Exception:
+            log.debug("barometer read failed", exc_info=True)
+            return None
+
+    def _timed_climb(self, dz_m: float) -> None:
+        """An up as so much throttle for so long, for heights the sensor cannot see.
+
+        An up heard while one is under way adds its seconds to that climb. The
+        number of ups, and so the total time at full climb, is bounded by the
+        ceiling; the barometer stops it sooner if it reads past the ceiling.
+        """
+        assert self._timed_up is not None
+        power, seconds = self._timed_up
+        with self._lock:
+            new_target = clamp_altitude(self._target + dz_m)
+            if new_target - self._target < 0.05:
+                return
+            self._target = new_target
+            if self._timed_end > time.monotonic():
+                self._timed_end += seconds
+                return
+            self._timed_end = time.monotonic() + seconds
+            self._phase = "climbing"
+
+        def run() -> None:
+            self._abort.clear()
+            began = time.monotonic()
+            first = self._elevation()
+            outcome = "timed"
+            try:
+                while True:
+                    # Read and ended under the lock, so an up arriving now is
+                    # either added to this climb or starts the next one.
+                    with self._lock:
+                        if time.monotonic() >= self._timed_end:
+                            self._timed_end = 0.0
+                            break
+                    if self._abort.is_set():
+                        outcome = "cut short"
+                        break
+                    elev, floor = self._elevation(), self._floor_elev
+                    over = self._ceiling_m + BARO_SLACK_M
+                    if floor is not None and elev is not None and elev - floor > over:
+                        outcome = "the barometer put it over the ceiling"
+                        break
+                    if hasattr(self._drone, "set_roll"):
+                        self._drone.set_roll(0)
+                        self._drone.set_pitch(0)
+                    self._drone.set_throttle(power)
+                    self._drone.move(STEER_S)
+            finally:
+                with self._lock:
+                    self._timed_end = 0.0
+                if hasattr(self._drone, "set_roll"):
+                    self._drone.set_roll(0)
+                    self._drone.set_pitch(0)
+                self._drone.set_throttle(0)
+                self._drone.hover(0.3)
+            last = self._elevation()
+            baro = f"{last - first:+.2f}" if last is not None and first is not None else "?"
+            log.info(
+                "timed climb: %d%% for %.1f s (%s), barometer %s m, range %s",
+                power,
+                time.monotonic() - began,
+                outcome,
+                baro,
+                self._height(),
+            )
+            with self._lock:
+                if self._phase == "climbing":
+                    self._phase = "hovering"
+
+        self._worker.submit("move_vertical", run)
+
     def move_vertical(self, dz_m: float) -> None:
+        if self._timed_up is not None and dz_m > 0:
+            self._timed_climb(dz_m)
+            return
         with self._lock:
             new_target = clamp_altitude(self._target + dz_m)
             delta = new_target - self._target
