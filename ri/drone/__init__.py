@@ -28,7 +28,7 @@ LedColor = Literal[
 LedMode = Literal["off", "solid", "breathing"]
 
 # Sized by the room (ri/room.py). On the stage a clap lifts the drone to
-# 0.5 m, each up is 0.1 m, and 1.5 m clears the ceiling.
+# 1.0 m, each up is a third of a metre, and 2.0 m is the ceiling.
 _ROOM = room.current()
 WAKE_ALTITUDE_M = _ROOM.wake_m
 MAX_ALTITUDE_M = _ROOM.ceiling_m

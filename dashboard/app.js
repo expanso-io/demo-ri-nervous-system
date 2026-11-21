@@ -713,6 +713,8 @@ function label(sense, m) {
 
   if (sense === "word") return `${m.value} ${m.confidence.toFixed(2)}`;
 
+  if (m.gesture === "jazz") return "jazz hands";
+
   if (m.gesture) return `wave ${m.gesture}`;
 
   return `${m.up ?? 0} hands`;
@@ -1393,6 +1395,7 @@ const FORCE_KEYS = {
   w: ["hands", "forward"],
   a: ["hands", "left"],
   d: ["hands", "right"],
+  j: ["hands", "jazz"],
   h: ["hands", "crowd"],
 };
 
@@ -1404,7 +1407,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  // The show by number: 1 wake, 2 the five ups, 3 left, 4 right, 5 the room lands it.
+  // The show by number: 1 wake, 2 the ups, 3 left, 4 right, 5 the room lands it.
   if (/^[1-5]$/.test(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
 

@@ -41,6 +41,12 @@ RAISE_REACH = 0.3
 # A wave: a wrist that travels this many shoulder widths inside the window.
 WAVE_TRAVEL = 1.2
 WAVE_MIN_FRAMES = 4
+# Jazz hands: both wrists up, one each side, each shaking inside a small box.
+# The model sees wrists, not fingers, so the shake is what it reads: travel
+# of at least JAZZ_TRAVEL inside a box no wider than JAZZ_EXTENT. A beckon
+# travels as far but over a box twice the size; still arms barely travel.
+JAZZ_TRAVEL = 0.5
+JAZZ_EXTENT = 0.45
 Arms = tuple[float, float, float, float]
 
 
@@ -163,17 +169,57 @@ def arm_pose(keypoints: Array) -> Arms | None:
 
 
 def _waving(track: list[tuple[float, float]]) -> bool:
-    """A wrist is waving when it travels a long way and ends up near where it began."""
+    """A wrist is waving when it travels a long way and ends up near where it began.
+
+    It must also sweep a box bigger than a shake's, or jazz hands done
+    off-centre would read as a wave.
+    """
     travel = sum(math.dist(p, q) for p, q in itertools.pairwise(track))
-    return travel >= WAVE_TRAVEL and math.dist(track[0], track[-1]) <= 0.5 * travel
+    swept = _extent(track) > JAZZ_EXTENT
+    return travel >= WAVE_TRAVEL and swept and math.dist(track[0], track[-1]) <= 0.5 * travel
+
+
+def _extent(track: list[tuple[float, float]]) -> float:
+    """The larger side of the box a wrist's path stays inside."""
+    xs, ys = [x for x, _ in track], [y for _, y in track]
+    return max(max(xs) - min(xs), max(ys) - min(ys))
+
+
+def _shaking(track: list[tuple[float, float]]) -> bool:
+    travel = sum(math.dist(p, q) for p, q in itertools.pairwise(track))
+    return travel >= JAZZ_TRAVEL and _extent(track) <= JAZZ_EXTENT
+
+
+def arm_readout(poses: list[Arms]) -> dict[str, object] | None:
+    """The numbers the signals are read from, for tuning in front of the camera.
+
+    Per wrist, in shoulder widths: where it sits on average (across, down),
+    how far it travelled in the window, and the size of the box it stayed in.
+    """
+    if len(poses) < WAVE_MIN_FRAMES:
+        return None
+    out: dict[str, object] = {"frames": len(poses), "signal": marshal_signal(poses)}
+    for name, track in (
+        ("a", [(p[0], p[1]) for p in poses]),
+        ("b", [(p[2], p[3]) for p in poses]),
+    ):
+        travel = sum(math.dist(p, q) for p, q in itertools.pairwise(track))
+        out[name] = {
+            "across": round(sum(x for x, _ in track) / len(track), 2),
+            "down": round(sum(y for _, y in track) / len(track), 2),
+            "travel": round(travel, 2),
+            "extent": round(_extent(track), 2),
+        }
+    return out
 
 
 def marshal_signal(poses: list[Arms]) -> str | None:
     """The signal a ground marshal is giving, read from a second or so of arms.
 
     Both arms raised and beckoning is ahead. One arm held out to a side while
-    the other beckons is a turn to that side, as the camera sees it. Arms that
-    are still, however they are held, are no signal at all.
+    the other beckons is a turn to that side, as the camera sees it. Both
+    hands up, one each side, shaking: jazz hands, which lands the drone.
+    Arms that are still, however they are held, are no signal at all.
     """
     if len(poses) < WAVE_MIN_FRAMES:
         return None
@@ -181,6 +227,10 @@ def marshal_signal(poses: list[Arms]) -> str | None:
     mean = [(sum(x for x, _ in t) / len(t), sum(y for _, y in t) / len(t)) for t in wrists]
     waving = [_waving(t) for t in wrists]
     raised = [m[1] < -RAISE_REACH for m in mean]
+    # Checked first: a fast shake can also pass for a short wave.
+    apart = mean[0][0] * mean[1][0] < 0
+    if all(raised) and apart and all(_shaking(t) for t in wrists):
+        return "jazz"
     for held, other in ((0, 1), (1, 0)):
         if not (raised[other] and waving[other]) or waving[held]:
             continue
@@ -310,6 +360,7 @@ class HandCounter:
         )
         self.margin_ratio = margin_ratio
         self.window: deque[FrameCount] = deque()
+        self.readout: dict[str, object] | None = None
 
     def detect_frame(
         self, image: Array, now: float | None = None
@@ -370,4 +421,6 @@ class HandCounter:
         )
 
     def _held_signal(self) -> str | None:
-        return marshal_signal([c.arms for c in self.window if c.arms is not None])
+        poses = [c.arms for c in self.window if c.arms is not None]
+        self.readout = arm_readout(poses)
+        return marshal_signal(poses)

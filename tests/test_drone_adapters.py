@@ -197,7 +197,7 @@ def test_codrone_settles_to_the_wake_height_and_flies_a_leg_as_one_diagonal() ->
     from ri.route import MOVE
 
     # The airframe takes off to its own height; the rig brings it down to ours.
-    sdk = FakeCoDroneSDK(height_m=0.9)
+    sdk = FakeCoDroneSDK(height_m=WAKE_ALTITUDE_M + 0.4)
     drone = CoDroneEdu(sdk=sdk)
     try:
         drone.take_off(WAKE_ALTITUDE_M)
@@ -307,16 +307,16 @@ def test_codrone_ignores_a_height_the_drone_stopped_sending() -> None:
 
 
 def test_codrone_gives_up_a_height_move_when_the_reading_goes() -> None:
-    sdk = FakeCoDroneSDK(height_m=0.9)
+    sdk = FakeCoDroneSDK(height_m=WAKE_ALTITUDE_M)
     drone = CoDroneEdu(sdk=sdk)
     try:
-        drone.take_off(0.9)
+        drone.take_off(WAKE_ALTITUDE_M)
         _wait_until(lambda: drone.state().phase == "hovering")
         sdk.fail_telemetry = True
         drone.move_vertical(0.3)
         _wait_until(lambda: drone.state().phase == "hovering")
         assert sdk.throttle == 0
-        assert sdk.height_m == pytest.approx(0.9, abs=0.05)
+        assert sdk.height_m == pytest.approx(WAKE_ALTITUDE_M, abs=0.05)
     finally:
         drone.close()
 

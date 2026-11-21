@@ -256,6 +256,33 @@ def test_marshal_signal_needs_a_wave_not_a_pose() -> None:
     assert marshal_signal(_arms(2, _beckon(-0.6), _beckon(0.6))) is None
 
 
+def _shake(across: float, down: float) -> Any:
+    """A wrist shaking fast in a small box: jazz hands as the pose model sees them."""
+    return lambda n: (across + (0.08 if n % 2 else -0.08), down + (0.06 if n % 3 else -0.06))
+
+
+def test_jazz_hands_are_both_hands_up_and_shaking() -> None:
+    from ri.senses.hands import arm_readout, marshal_signal
+
+    assert marshal_signal(_arms(10, _shake(-0.8, -0.9), _shake(0.8, -0.9))) == "jazz"
+    # Held still, both up, they are not jazz hands: nothing lands the drone.
+    assert marshal_signal(_arms(10, _still(-0.8, -0.9), _still(0.8, -0.9))) is None
+    # Shaking at the waist, or both on one side, is not jazz hands either.
+    assert marshal_signal(_arms(10, _shake(-0.8, 0.8), _shake(0.8, 0.8))) is None
+    assert marshal_signal(_arms(10, _shake(0.3, -0.9), _shake(0.9, -0.9))) is None
+    # A beckon travels as far, over a box too big for a shake.
+    assert marshal_signal(_arms(10, _beckon(-0.6), _beckon(0.6))) == "forward"
+    readout = arm_readout(_arms(10, _shake(-0.8, -0.9), _shake(0.8, -0.9)))
+    assert readout is not None and readout["signal"] == "jazz"
+    assert readout["a"] == {
+        "across": pytest.approx(-0.8),
+        "down": pytest.approx(-0.9, abs=0.05),
+        "travel": pytest.approx(1.6, abs=0.3),
+        "extent": 0.16,
+    }
+    assert arm_readout(_arms(2, _still(0, 0), _still(0, 0))) is None
+
+
 def test_arm_pose_measures_the_nearest_person_in_shoulder_widths() -> None:
     from ri.senses.hands import arm_pose
 

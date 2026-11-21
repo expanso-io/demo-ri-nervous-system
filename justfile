@@ -61,6 +61,11 @@ again size="" drone=default_drone cam=default_cam mic=default_mic:
     uv run python -m ri.stack up --room "{{size}}" --skip-deploy --drone {{drone}} --input live --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input live
     just ready 45
 
+# Live readout of what the camera reads off your arms, twice a second, to
+# tune the left, right and jazz-hands signals. Needs the rig up.
+arms:
+    uv run python -m ri.arms
+
 # Zero the drone's gyro: drone still, on a hard, level table. Stops the rig
 # first (the Cloud jobs are kept); `just again` brings it back.
 level:

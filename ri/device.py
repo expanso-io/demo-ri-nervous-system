@@ -98,7 +98,7 @@ def pink(n: int, rng: np.random.Generator) -> Array:
 FORCEABLE: dict[str, tuple[str, ...]] = {
     "clap": ("clap",),
     "word": ("up", "down", "stop"),
-    "hands": ("forward", "left", "right", "crowd"),
+    "hands": ("forward", "left", "right", "jazz", "crowd"),
 }
 
 
@@ -624,6 +624,8 @@ class HandsDevice(Device):
         # Whether someone's shoulders and both wrists were in the last frame:
         # without them no wave can ever be read.
         body["arms"] = self.arms_in_view
+        # What the last window's arms measured, for `just arms`.
+        body["arms_readout"] = self.counter.readout
         if self.camera is not None and self.camera.device_name:
             body["camera"] = self.camera.device_name
         return body

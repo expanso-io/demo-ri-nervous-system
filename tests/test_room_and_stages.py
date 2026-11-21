@@ -32,10 +32,11 @@ def _numbers(name: str) -> dict[str, Any]:
 
 def test_a_small_room_shrinks_every_height_and_both_legs() -> None:
     large, small = _numbers("large"), _numbers("small")
-    assert (large["wake"], large["step"], large["max"]) == (0.5, 0.1, 1.5)
+    # The stage: a clap to 1 m, then "up, up, up" to 2 m.
+    assert (large["wake"], large["step"], large["max"]) == pytest.approx((1.0, 1 / 3, 2.0))
     assert (small["wake"], small["step"], small["max"]) == (0.4, 0.1, 1.0)
-    assert room.ROOMS["small"].top_m == 0.9
-    assert room.ROOMS["large"].top_m == 1.0
+    assert (room.ROOMS["large"].ups, room.ROOMS["large"].top_m) == (3, 2.0)
+    assert (room.ROOMS["small"].ups, room.ROOMS["small"].top_m) == (5, 0.9)
     # Two 0.6 m diagonals: 0.85 m ahead of takeoff, back on the centre line.
     ahead = small["left"][0] + small["right"][0]
     assert ahead == pytest.approx(0.849, abs=0.001)
@@ -58,26 +59,29 @@ def test_the_room_is_remembered_between_launches(tmp_path: Any, monkeypatch: Any
 class _Board:
     """A drone that climbs one step per "up", like the real rule table."""
 
-    def __init__(self, phase: str = "hovering", target: float = 0.5) -> None:
-        self.drone: dict[str, Any] = {"phase": phase, "target_m": target}
+    def __init__(self, phase: str = "hovering", target: float | None = None) -> None:
+        start = room.current().wake_m if target is None else target
+        self.drone: dict[str, Any] = {"phase": phase, "target_m": start}
         self.said: list[tuple[str, str]] = []
         self.deaf = False
 
     def say(self, sense: str, value: str) -> None:
         self.said.append((sense, value))
         if not self.deaf:
-            self.drone = {**self.drone, "target_m": round(self.drone["target_m"] + 0.1, 3)}
+            step = room.current().step_m
+            self.drone = {**self.drone, "target_m": round(self.drone["target_m"] + step, 3)}
 
 
 def _climb(board: _Board, **kw: Any) -> int:
     return screen_mod.climb(board, board.say, patience_s=0.3, tick_s=0.01, **kw)  # type: ignore[arg-type]
 
 
-def test_stage_two_says_up_five_times_and_stops_at_the_top() -> None:
+def test_stage_two_says_each_up_and_stops_at_the_top() -> None:
     board = _Board()
-    assert _climb(board) == 5
-    assert board.said == [("word", "up")] * 5
-    assert board.drone["target_m"] == 1.0
+    ups = room.current().ups
+    assert _climb(board) == ups
+    assert board.said == [("word", "up")] * ups
+    assert board.drone["target_m"] == pytest.approx(room.current().top_m, abs=0.01)
     # Pressed again at the top, it says nothing.
     assert _climb(board) == 0
 

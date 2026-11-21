@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from ri.decide import FRESH_S, Decider
-from ri.drone import DroneState, Phase
+from ri import room
+from ri.decide import FLOOR_M, FRESH_S, Decider
+from ri.drone import MAX_ALTITUDE_M, STEP_M, WAKE_ALTITUDE_M, DroneState, Phase
 from ri.messages import Decision, MessageError, parse_decision
 
 NOW = 1000.0
@@ -64,10 +65,10 @@ def test_up_and_down_move_one_step() -> None:
 def test_envelope_ceiling_and_floor_hold() -> None:
     d = Decider()
     d.observe(word("up"))
-    action = d.decide(drone(target=1.5), NOW)
+    action = d.decide(drone(target=MAX_ALTITUDE_M), NOW)
     assert (action.act, action.because) == ("hold", "ceiling reached")
     d.observe(word("down", seq=2))
-    assert d.decide(drone(target=0.5), NOW).because == "lowest safe height"
+    assert d.decide(drone(target=FLOOR_M), NOW).because == "lowest safe height"
 
 
 def test_a_word_never_wakes_a_sleeping_drone() -> None:
@@ -77,14 +78,34 @@ def test_a_word_never_wakes_a_sleeping_drone() -> None:
     assert (action.act, action.because) == ("hold", "asleep: clap to wake")
 
 
-def test_five_ups_take_the_drone_from_the_wake_height_to_one_metre() -> None:
+def test_the_shows_ups_take_the_drone_from_the_wake_height_to_the_top() -> None:
     d = Decider()
-    height = 0.5
-    for i in range(5):
+    height = WAKE_ALTITUDE_M
+    ups = room.current().ups
+    for i in range(ups):
         d.observe(word("up", t=NOW + i, seq=i + 1))
         assert d.decide(drone(target=height), NOW + i).act == "up"
-        height = round(height + 0.1, 2)
-    assert height == 1.0
+        height += STEP_M
+    assert height == pytest.approx(room.current().top_m)
+    # One more is past the ceiling.
+    d.observe(word("up", t=NOW + ups, seq=ups + 1))
+    assert d.decide(drone(target=height), NOW + ups).because == "ceiling reached"
+
+
+def test_jazz_hands_land_the_drone_on_their_own() -> None:
+    d = Decider()
+    d.observe(hands(2, 1, gesture="jazz"))
+    d.observe(word("up", conf=0.9))
+    action = d.decide(drone(), NOW, need="left")
+    assert (action.act, action.rule) == ("land", "land")
+    assert action.because == "jazz hands > word up"
+    assert action.inputs == ("jazz hands", "up 0.90")
+
+
+def test_jazz_hands_do_not_wake_a_sleeping_drone() -> None:
+    d = Decider()
+    d.observe(hands(2, 1, gesture="jazz"))
+    assert d.decide(drone("dark", 0.0), NOW).act == "hold"
 
 
 def test_stop_beats_move() -> None:

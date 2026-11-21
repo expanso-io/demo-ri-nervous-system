@@ -4,7 +4,7 @@
 
 * A decision is fresh for 3 s. A stale decision is never acted on; the drone
   holds instead. A late message cannot move the drone.
-* Land needs 20 hands in the air at once.
+* Land needs 20 hands in the air at once, or the presenter's jazz hands.
 * Each word and each clap is acted on at most once.
 * The route is fixed. An arm signal releases its next leg only when it is
   the signal that leg asks for; it never steers, and once the route is flown
@@ -99,13 +99,14 @@ class Decider:
         hands = self.fresh("hands", now)
         word = self._pending("word", now, WORD_MIN)
         clap = self._pending("clap", now, CLAP_MIN)
-        majority = hands is not None and hands.up >= LAND_HANDS
+        jazz = hands is not None and hands.gesture == "jazz"
+        majority = hands is not None and (hands.up >= LAND_HANDS or jazz)
 
         # Rule 1, land: the safety reflex beats everything. It keeps holding
         # while the drone comes down, so a shout mid-descent still loses.
         landing = drone.phase == "landing"
         if (drone.airborne or landing) and majority and hands is not None:
-            because = f"{hands.up} hands"
+            because = "jazz hands" if jazz else f"{hands.up} hands"
             inputs = [hands.label()]
             # Name the word that lost, even one already acted on a moment ago.
             rival = word or self.fresh("word", now)

@@ -54,7 +54,7 @@ SENSE_PORT = {
     "hands": "HANDS_DEVICE_PORT",
 }
 # The show by number: each key sends what the room would have, through the
-# same device and pipeline. Stage 2 is five separate "up"s (see `climb`).
+# same device and pipeline. Stage 2 is the room's separate "up"s (see `climb`).
 STAGES: dict[int, tuple[str, str]] = {
     1: ("clap", "clap"),
     2: ("word", "up"),
@@ -247,7 +247,7 @@ def climb(
             time.sleep(tick_s)
         return False
 
-    while said < room.UPS + 2:
+    while said < this.ups + 2:
         if not settle(lambda d: d.get("phase") == "hovering"):
             break
         before = float(board.drone.get("target_m", 0.0))

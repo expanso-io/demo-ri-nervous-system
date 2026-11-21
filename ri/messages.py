@@ -47,6 +47,8 @@ class Decision:
             return f"clap {self.confidence:.2f}"
         if self.sense == "word":
             return f"{self.value} {self.confidence:.2f}"
+        if self.gesture == "jazz":
+            return "jazz hands"
         if self.gesture:
             return f"wave {self.gesture}"
         return f"{self.up} hands"
@@ -92,7 +94,7 @@ def parse_decision(raw: bytes | str | dict[str, Any]) -> Decision:
         up, seen = int(data["up"]), int(data["seen"])
         share = float(data.get("share", up / seen if seen else 0.0))
         gesture = data.get("gesture")
-        if gesture is not None and gesture not in ("forward", "left", "right"):
+        if gesture is not None and gesture not in ("forward", "left", "right", "jazz"):
             raise MessageError(f"unknown gesture: {gesture!r}")
         return Decision("hands", t, up=up, seen=seen, share=share, gesture=gesture, seq=seq)
     except (KeyError, TypeError) as error:

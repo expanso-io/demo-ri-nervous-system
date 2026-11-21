@@ -109,8 +109,9 @@ how it is checked.
 
 ## Room size
 
-`just up large` is the stage. `just up small` is a hotel room with about a
-king-size bed of clear floor: lift to 0.4 m, climb to 0.9 m, ceiling 1.0 m,
+`just up large` is the stage: lift to 1.0 m, three ups to 2.0 m, ceiling
+2.0 m, legs of 1.0 m. `just up small` is a hotel room with about a
+king-size bed of clear floor: lift to 0.4 m, five ups to 0.9 m, ceiling 1.0 m,
 legs of 0.6 m. The rig keeps the last size used, prints it at launch and in
 `just ready`, and `just again` reuses it. The sizes live in `ri/room.py`.
 
@@ -118,16 +119,22 @@ legs of 0.6 m. The rig keeps the last size used, prints it at launch and in
 
 The flight is fixed. The room only releases each part of it.
 
-1. Clap five times within three seconds. The drone lifts to 0.5 m. Key: `1` or `C`.
-2. Say "up" five times. Each one is 0.1 m, to 1.0 m. The hard ceiling is
-   1.5 m, on the measured height. Key: `2` says all five, one after
-   each hover; up arrow says one.
-3. Wave it left. One metre, 45 degrees ahead and to the left, then it
+1. Clap five times within three seconds. The drone lifts to 1.0 m. Key: `1` or `C`.
+2. Say "up, up, up". Each one is a third of a metre, to 2.0 m, which is
+   also the ceiling: a fourth up is refused. Key: `2` says all three, one
+   after each hover; up arrow says one. (Small room: five ups of 0.1 m.)
+3. Wave it left: hold one arm straight out to the camera's left and wave
+   the other overhead. One metre, 45 degrees ahead and to the left, then it
    stops. More waves do nothing. Key: `3` or `A`.
-4. Wave it right. One metre, 45 degrees ahead and to the right, then it
+4. Wave it right: the same, mirrored. One metre, 45 degrees ahead and to the right, then it
    stops over the pad. More waves do nothing. Key: `4` or `D`.
-5. The room raises hands. The board counts them toward 20. At 20 the
-   drone lands and its motors stop. Key: `5` or `H`.
+5. Jazz hands bring it down: both hands up beside your head, shaking.
+   Or the room raises hands, counted toward 20. Either way the drone lands
+   and its motors stop. Keys: `J` for jazz hands, `5` or `H` for the room.
+
+`just arms` prints, twice a second, what the camera reads off your arms
+and which signal that makes, so the thresholds in `ri/senses/hands.py` can
+be tuned against real arms.
 
 `Esc` lands it at any point and holds it for 10 seconds. The reset button
 does the same and clears the board. The numbers live in `ri/room.py`

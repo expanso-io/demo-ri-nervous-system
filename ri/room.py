@@ -1,7 +1,7 @@
 """The room the flight is sized for.
 
-    just up large    the stage: lift to 0.5 m, climb to 1.0 m, legs of 1.0 m
-    just up small    a hotel room: lift to 0.4 m, climb to 0.9 m, legs of 0.6 m
+    just up large    the stage: lift to 1.0 m, three ups to 2.0 m, legs of 1.0 m
+    just up small    a hotel room: lift to 0.4 m, five ups to 0.9 m, legs of 0.6 m
 
 The launcher hands the choice to every service as RI_ROOM and remembers it in
 .runtime/room, so `just again` flies the same room until told otherwise.
@@ -14,7 +14,6 @@ from dataclasses import dataclass
 
 from ri.ports import RUNTIME
 
-UPS = 5
 DEFAULT = "large"
 REMEMBERED = RUNTIME / "room"
 
@@ -26,11 +25,12 @@ class Room:
     step_m: float  # one "up"
     ceiling_m: float  # never above this, whatever is said
     leg_m: float  # each diagonal leg of the route
+    ups: int  # how many "up"s the show says, from the lift to the top
 
     @property
     def top_m(self) -> float:
-        """Where the drone sits after the five ups of the show."""
-        return round(self.wake_m + UPS * self.step_m, 3)
+        """Where the drone sits after the ups of the show."""
+        return round(self.wake_m + self.ups * self.step_m, 3)
 
     @property
     def fence_m(self) -> float:
@@ -42,17 +42,19 @@ class Room:
 
     def summary(self) -> str:
         return (
-            f"{self.name}: lift {self.wake_m:.1f} m, climb to {self.top_m:.1f} m, "
+            f"{self.name}: lift {self.wake_m:.1f} m, {self.ups} ups to {self.top_m:.1f} m, "
             f"ceiling {self.ceiling_m:.1f} m, legs {self.leg_m:.1f} m, "
             f"lands {self.fence_m:.1f} m from take-off"
         )
 
 
 ROOMS: dict[str, Room] = {
-    "large": Room("large", wake_m=0.5, step_m=0.1, ceiling_m=1.5, leg_m=1.0),
+    # A clap lifts it to a metre and "up, up, up" takes it to two, a third
+    # of a metre each; the ceiling is the top, so a fourth up is refused.
+    "large": Room("large", wake_m=1.0, step_m=1 / 3, ceiling_m=2.0, leg_m=1.0, ups=3),
     # About a king-size bed of clear floor: the two legs end 0.85 m ahead of
     # takeoff and swing 0.42 m to the left on the way.
-    "small": Room("small", wake_m=0.4, step_m=0.1, ceiling_m=1.0, leg_m=0.6),
+    "small": Room("small", wake_m=0.4, step_m=0.1, ceiling_m=1.0, leg_m=0.6, ups=5),
 }
 
 
