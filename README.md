@@ -3,7 +3,7 @@
 **Three small devices, one tiny model each, and a few bytes between them are
 enough to let a room full of people fly a drone without a data centre.**
 
-A clap wakes the drone, a shouted word moves it, the room's applause lands it.
+The presenter wakes the drone, a shouted word moves it, the room's applause lands it.
 Each sense is its own box with one model and one Expanso Edge pipeline that
 turns raw sound or pictures into one small decision. A fourth pipeline beside
 the drone applies one rule table (land > stop > move > wake) and flies it.
@@ -112,8 +112,8 @@ how it is checked.
 `just up large` is the stage: lift to 1.0 m, three ups to 2.0 m, ceiling
 2.0 m, legs of 1.0 m. `just up small` is a hotel room with about a
 king-size bed of clear floor: lift to 0.4 m, five ups to 0.9 m, ceiling 1.0 m,
-legs of 0.6 m. `just up hall` is a big hall: five claps to 2.0 m, two ups of a metre each
-to 4.0 m, legs of 2.0 m, and a harder climb. The drone's height sensor reads
+legs of 0.6 m. `just up hall` is a big hall: wake to 2.0 m, two ups of a metre each
+to 4.0 m, legs of 1.0 m, and a harder climb. The drone's height sensor reads
 to about 2 m (Robolink rate it to 1.5 m), so above that a climb loses its
 reading and stops where it is. The rig keeps the last size used, prints it at launch and in
 `just ready`, and `just again` reuses it. The sizes live in `ri/room.py`.
@@ -122,7 +122,8 @@ reading and stops where it is. The rig keeps the last size used, prints it at la
 
 The flight is fixed. The room only releases each part of it.
 
-1. Clap five times within three seconds. The drone lifts to 1.0 m. Key: `1` or `C`.
+1. The presenter wakes it from the board: key `1` or `C`. The drone lifts to
+   1.0 m. Claps heard in the room never wake it; clapping is only for landing.
 2. Say "up, up, up". Each one is a third of a metre, to 2.0 m, which is
    also the ceiling: a fourth up is refused. Key: `2` says all three, one
    after each hover; up arrow says one. (Small room: five ups of 0.1 m.)

@@ -12,7 +12,8 @@
 * The route is fixed. An arm signal releases its next leg only when it is
   the signal that leg asks for; it never steers, and once the route is flown
   no wave moves the drone at all.
-* A clap wakes a sleeping drone (applause never does); each up is one step higher, and an up
+* Only the presenter wakes a sleeping drone, from the board. A clap heard
+  in the room never wakes it: claps are for landing it. Each up is one step higher, and an up
   heard while it is still climbing is added to that climb.
 * When a land and a word arrive together, the land wins and the word is
   recorded as having lost. That rule is the whole safety system.
@@ -160,24 +161,25 @@ class Decider:
                 "hold", f"wants a wave {need}", "route", (signal.label(),), waiting=True, t=now
             )
 
-        # Rule 5, wake: a clap brings a dark or parked drone up to hover.
+        # Rule 5, wake: the presenter's wake brings a dark or parked drone up
+        # to hover. Claps heard in the room are spent below, never a wake.
         grounded = not drone.airborne and drone.phase != "landing"
-        if grounded and clap is not None and clap.value != "applause":
+        if grounded and clap is not None and clap.value == "wake":
             self._consume(clap)
-            return Action("wake", "clap", "wake", (clap.label(),), t=now)
+            return Action("wake", "presenter", "wake", (clap.label(),), t=now)
 
         # Nothing actionable: hold, and say why.
         # A clap heard while flying or coming down is spent. Left pending, a
         # clap during a landing (or the thump of the landing itself) would
         # wake the drone the instant it touched the floor.
-        # Applause on the ground is spent too: it is never a wake.
-        self._consume(clap if drone.airborne or landing else heard)
+        # On the ground every heard clap and applause is spent: never a wake.
+        self._consume(clap)
         if drone.airborne and heard is not None:
             why = f"applause: wants the {need} leg first"
             return Action("hold", why, None, (heard.label(),), t=now)
         if word is not None and not drone.airborne:
             self._consume(word)
-            return Action("hold", "asleep: clap to wake", None, (word.label(),), t=now)
+            return Action("hold", "asleep: wake it from the board", None, (word.label(),), t=now)
         stale = [s for s in ("hands",) if s in self.latest and self.fresh(s, now) is None]
         if drone.airborne and stale:
             return Action("hold", "no fresh instruction", None, t=now)

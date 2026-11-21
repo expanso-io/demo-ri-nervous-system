@@ -368,13 +368,17 @@ def test_after_the_presenters_stop_nothing_wakes_the_drone(monkeypatch: pytest.M
     try:
         fl.drone.take_off(1.0)
         fl.kill(cut=False)
-        clap = json.dumps({"sense": "clap", "confidence": 0.99, "t": time.time(), "seq": 1})
+        clap = json.dumps(
+            {"sense": "clap", "confidence": 0.99, "value": "wake", "t": time.time(), "seq": 1}
+        )
         assert fl.decide(clap.encode())["because"] == "presenter stop"
-        # Once the quiet spell is over, that same clap is spent, and a new one wakes it.
+        # Once the quiet spell is over, that same wake is spent, and a new one wakes it.
         fl.quiet_until = 0.0
         fl.drone.emergency()
         assert fl.decide(clap.encode())["act"] == "hold"
-        fresh = json.dumps({"sense": "clap", "confidence": 0.99, "t": time.time(), "seq": 2})
+        fresh = json.dumps(
+            {"sense": "clap", "confidence": 0.99, "value": "wake", "t": time.time(), "seq": 2}
+        )
         assert fl.decide(fresh.encode())["act"] == "wake"
     finally:
         fl.shutdown()

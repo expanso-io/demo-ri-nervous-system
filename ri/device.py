@@ -114,7 +114,8 @@ def forced_decision(sense: str, value: str, seq: int) -> Decision:
         raise ValueError(f"cannot force {value!r} on {sense!r}")
     now = time.time()
     if sense == "clap":
-        heard = "applause" if value == "applause" else None
+        # A typed clap is the presenter's wake; a heard clap never wakes.
+        heard = "applause" if value == "applause" else "wake"
         return Decision("clap", now, confidence=0.99, value=heard, seq=seq)
     if sense == "word":
         return Decision("word", now, confidence=0.99, value=value, seq=seq)

@@ -29,7 +29,7 @@ from ri.ports import RUNTIME, url
 
 PROMPTS = {
     "hook": "This drone has no brain of its own. You are its nervous system.",
-    "clap": "Clap to wake it.",
+    "clap": "Wake it.",
     "shout": "Shout up or down.",
     "hands": "Hands up to land it.",
     "again": "Clap to wake it again.",
@@ -54,6 +54,11 @@ def scene(beat: str, prompt: str | None = None) -> Callable[[], Any]:
 
 def clip(device_port: str, name: str) -> Callable[[], Any]:
     return lambda: post(url(device_port, "/cue"), {"clip": name})
+
+
+def wake() -> Any:
+    """The presenter's wake: claps heard in the room never wake the drone."""
+    return post(url("CLAP_DEVICE_PORT", "/cue"), {"sense": "clap", "force": "clap"})
 
 
 def camera(name: str) -> Callable[[], Any]:
@@ -83,7 +88,7 @@ ARC: tuple[Cue, ...] = (
     Cue(0.0, "crowd sits, hands down", camera("down")),
     Cue(8.0, "presenter starts the pipelines in Expanso Cloud", start_pipelines),
     Cue(30.0, "beat: clap to wake", scene("clap")),
-    Cue(33.0, "the room claps", clip("CLAP_DEVICE_PORT", "applause")),
+    Cue(33.0, "the presenter wakes it", wake),
     Cue(75.0, "beat: shout up or down", scene("shout")),
     Cue(78.0, "volunteer: up", clip("WORD_DEVICE_PORT", "up")),
     Cue(91.0, "volunteer: up", clip("WORD_DEVICE_PORT", "up")),
@@ -95,7 +100,7 @@ ARC: tuple[Cue, ...] = (
     Cue(162.0, "most hands go up", camera("majority")),
     Cue(174.0, "hands down", camera("down")),
     Cue(178.0, "beat: wake it again", scene("hands", "again")),
-    Cue(180.0, "the room claps", clip("CLAP_DEVICE_PORT", "applause")),
+    Cue(180.0, "the presenter wakes it", wake),
     Cue(195.0, "beat: conflict", scene("conflict")),
     Cue(196.0, "most hands go up", camera("conflict")),
     Cue(198.0, "volunteer: up, while the hands are up", clip("WORD_DEVICE_PORT", "up")),

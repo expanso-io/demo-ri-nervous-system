@@ -707,7 +707,7 @@ function age(item, now) {
 function label(sense, m) {
   if (!m) return null;
 
-  if (sense === "clap") return `${m.value === "applause" ? "applause" : "clap"} ${m.confidence.toFixed(2)}`;
+  if (sense === "clap") return `${m.value || "clap"} ${m.confidence.toFixed(2)}`;
 
   if (sense === "word") return `${m.value} ${m.confidence.toFixed(2)}`;
 

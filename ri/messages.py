@@ -44,7 +44,7 @@ class Decision:
     def label(self) -> str:
         """The short form the audience reads: `clap 0.93`, `up 0.81`, `hands 62%`."""
         if self.sense == "clap":
-            name = "applause" if self.value == "applause" else "clap"
+            name = self.value or "clap"
             return f"{name} {self.confidence:.2f}"
         if self.sense == "word":
             return f"{self.value} {self.confidence:.2f}"
@@ -89,7 +89,7 @@ def parse_decision(raw: bytes | str | dict[str, Any]) -> Decision:
         seq = int(data.get("seq", 0))
         if sense == "clap":
             heard = data.get("value")
-            if heard not in (None, "applause"):
+            if heard not in (None, "applause", "wake"):
                 raise MessageError(f"unknown clap: {heard!r}")
             conf = float(data["confidence"])
             return Decision("clap", t, confidence=conf, value=heard, seq=seq)

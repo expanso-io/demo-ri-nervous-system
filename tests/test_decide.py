@@ -18,6 +18,11 @@ def clap(t: float = NOW, conf: float = 0.93, seq: int = 1) -> Decision:
     return Decision("clap", t, confidence=conf, seq=seq)
 
 
+def wake(t: float = NOW, seq: int = 1) -> Decision:
+    """The presenter's wake, typed on the board."""
+    return Decision("clap", t, confidence=0.99, value="wake", seq=seq)
+
+
 def word(value: str, t: float = NOW, conf: float = 0.81, seq: int = 1) -> Decision:
     return Decision("word", t, confidence=conf, value=value, seq=seq)
 
@@ -30,18 +35,25 @@ def hands(up: int, seen: int, t: float = NOW, seq: int = 1, gesture: str | None 
     return Decision("hands", t, up=up, seen=seen, share=up / seen, gesture=gesture, seq=seq)
 
 
-def test_clap_wakes_a_dark_drone() -> None:
+def test_the_presenters_wake_wakes_a_dark_drone() -> None:
     d = Decider()
-    d.observe(clap())
+    d.observe(wake())
     action = d.decide(drone("dark", 0.0), NOW)
-    assert (action.act, action.rule) == ("wake", "wake")
+    assert (action.act, action.because, action.rule) == ("wake", "presenter", "wake")
 
 
-def test_clap_wakes_a_parked_drone_but_not_a_landing_one() -> None:
+def test_a_clap_heard_in_the_room_never_wakes_the_drone_and_is_spent() -> None:
     d = Decider()
     d.observe(clap())
+    assert d.decide(drone("dark", 0.0), NOW).act == "hold"
+    assert d.decide(drone("parked", 0.0), NOW + 0.1).act == "hold"
+
+
+def test_the_wake_wakes_a_parked_drone_but_not_a_landing_one() -> None:
+    d = Decider()
+    d.observe(wake())
     assert d.decide(drone("landing", 0.4), NOW).act == "hold"
-    d.observe(clap(seq=2))
+    d.observe(wake(seq=2))
     assert d.decide(drone("parked", 0.0), NOW).act == "wake"
 
 
@@ -79,7 +91,7 @@ def test_a_word_never_wakes_a_sleeping_drone() -> None:
     d = Decider()
     d.observe(word("up"))
     action = d.decide(drone("dark", 0.0), NOW)
-    assert (action.act, action.because) == ("hold", "asleep: clap to wake")
+    assert (action.act, action.because) == ("hold", "asleep: wake it from the board")
 
 
 def test_the_shows_ups_take_the_drone_from_the_wake_height_to_the_top() -> None:
@@ -151,7 +163,7 @@ def test_applause_never_wakes_a_parked_drone_and_is_spent() -> None:
     d.observe(applause())
     assert d.decide(drone("parked", 0.0), NOW).act == "hold"
     assert d.decide(drone("parked", 0.0), NOW + 0.1).act == "hold"
-    d.observe(clap(t=NOW + 0.2, seq=2))
+    d.observe(wake(t=NOW + 0.2, seq=2))
     assert d.decide(drone("parked", 0.0), NOW + 0.2).act == "wake"
 
 
