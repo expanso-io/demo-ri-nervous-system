@@ -250,23 +250,25 @@ def _shaking(track: list[tuple[float, float]]) -> bool:
 def arm_readout(poses: list[Arms]) -> dict[str, object] | None:
     """The numbers the signals are read from, for tuning in front of the camera.
 
-    Per wrist, in shoulder widths: where it sits on average (across, down),
-    how far it travelled in the window, and the size of the box it stayed in.
+    Per wrist, in shoulder widths, as [across, down, travel, box]: where it
+    sits on average, how far it travelled in the window, and the size of the
+    box it stayed in. Lists, not named fields: it rides in the camera's
+    telemetry, which must stay under 512 bytes.
     """
     if len(poses) < WAVE_MIN_FRAMES:
         return None
-    out: dict[str, object] = {"frames": len(poses), "signal": marshal_signal(poses)}
+    out: dict[str, object] = {"signal": marshal_signal(poses)}
     for name, track in (
         ("a", [(p[0], p[1]) for p in poses]),
         ("b", [(p[2], p[3]) for p in poses]),
     ):
         travel = sum(math.dist(p, q) for p, q in itertools.pairwise(track))
-        out[name] = {
-            "across": round(sum(x for x, _ in track) / len(track), 2),
-            "down": round(sum(y for _, y in track) / len(track), 2),
-            "travel": round(travel, 2),
-            "extent": round(_extent(track), 2),
-        }
+        out[name] = [
+            round(sum(x for x, _ in track) / len(track), 2),
+            round(sum(y for _, y in track) / len(track), 2),
+            round(travel, 2),
+            round(_extent(track), 2),
+        ]
     return out
 
 

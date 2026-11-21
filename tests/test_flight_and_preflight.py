@@ -425,9 +425,10 @@ def test_ready_passes_a_healthy_rig_and_names_each_thing_that_is_wrong() -> None
     assert _failed(silent) == ["mic hear-clap"]
     assert _failed(_rig(drone={"phase": "hovering", "altitude_m": 0.0, "battery": 80})) == ["drone"]
     assert _failed(_rig(drone={"phase": "parked", "altitude_m": 0.0, "battery": 20})) == ["battery"]
-    chair = _rig()
-    chair["devices"]["see-hands"]["arms"] = False
-    assert _failed(chair) == ["camera"]
+    # Nobody in front of the camera at start-up is ready: frames are arriving.
+    empty = _rig()
+    empty["devices"]["see-hands"]["arms"] = False
+    assert _failed(empty) == []
     off = _rig()
     off["nodes"]["fly-drone"]["live"] = False
     assert _failed(off) == ["pipelines"]

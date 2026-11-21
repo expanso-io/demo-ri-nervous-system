@@ -278,12 +278,13 @@ def test_jazz_hands_are_both_hands_up_and_shaking() -> None:
     assert marshal_signal(_arms(10, _beckon(-0.6), _beckon(0.6))) == "forward"
     readout = arm_readout(_arms(10, _shake(-0.8, -0.9), _shake(0.8, -0.9)))
     assert readout is not None and readout["signal"] == "jazz"
-    assert readout["a"] == {
-        "across": pytest.approx(-0.8),
-        "down": pytest.approx(-0.9, abs=0.05),
-        "travel": pytest.approx(1.6, abs=0.3),
-        "extent": 0.16,
-    }
+    wrist = readout["a"]
+    assert isinstance(wrist, list)
+    across, down, travel, box = wrist
+    assert across == pytest.approx(-0.8)
+    assert down == pytest.approx(-0.9, abs=0.05)
+    assert box == 0.16
+    assert travel == pytest.approx(1.6, abs=0.3)
     assert arm_readout(_arms(2, _still(0, 0), _still(0, 0))) is None
 
 

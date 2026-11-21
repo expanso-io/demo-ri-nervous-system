@@ -113,13 +113,15 @@ def judge(
     if cam.get("captured_bytes", 0) <= cam_before.get("captured_bytes", 0):
         checks.append(Check("camera", False, "no frames arriving", "`just again`"))
     elif not cam.get("arms"):
+        # The presenter is rarely in front of the camera while the rig starts,
+        # so frames arriving is ready; whether arms are readable is a note.
         seen = hands.get("seen", 0)
         checks.append(
             Check(
                 "camera",
-                False,
-                f"{seen} people seen, but no one with both shoulders and both wrists in view",
-                "step back or raise the camera until both arms at full stretch are in frame",
+                True,
+                f"frames arriving, {seen} people seen, no arms to read yet "
+                "(`just arms` checks yours)",
             )
         )
     else:

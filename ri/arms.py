@@ -39,11 +39,9 @@ from ri.senses import hands
 LIMBS = ((0, 1), (0, 2), (2, 4), (1, 3), (3, 5))
 
 
-def _wrist(w: dict[str, Any]) -> str:
-    return (
-        f"across {w['across']:+5.2f}  down {w['down']:+5.2f}  "
-        f"travel {w['travel']:4.2f}  box {w['extent']:4.2f}"
-    )
+def _wrist(w: list[float]) -> str:
+    across, down, travel, box = w
+    return f"across {across:+5.2f}  down {down:+5.2f}  travel {travel:4.2f}  box {box:4.2f}"
 
 
 def line(readout: dict[str, Any] | None, arms: bool) -> str:

@@ -5,7 +5,7 @@ cloud := "uv run --no-project scripts/cloud_env.py --"
 nodes := "hear-clap hear-commands see-hands fly-drone"
 default_drone := "codrone"
 default_cam := "AnkerWork C310|OBSBOT Tiny 2 Lite"
-default_mic := "dji"
+default_mic := "mac"
 
 _default:
     @just --list
@@ -14,7 +14,7 @@ _default:
 cameras:
     uv run python -m ri.capture
 
-# Default live rig: CoDrone EDU + live DJI/Mac mic + the first camera in default_cam that is plugged in.
+# Default live rig: CoDrone EDU + the MacBook mic + the first camera in default_cam that is plugged in.
 # `just up small` sizes the flight for a hotel room, `just up large` for the stage,
 # `just up hall` for a big hall;
 # with no size it keeps the last one used. Override the rest with parameters
@@ -30,7 +30,7 @@ up-sim:
 up-cam cam=default_cam drone=default_drone:
     just up "" {{drone}} fixture "{{cam}}" "{{default_mic}}" live
 
-# Alias for `just up` (CoDrone + OBSBOT Tiny 2 Lite + live DJI/Mac mic).
+# Alias for `just up` (CoDrone + OBSBOT Tiny 2 Lite + the MacBook mic).
 up-live drone=default_drone cam=default_cam mic=default_mic:
     just up "" {{drone}} live "{{cam}}" "{{mic}}"
 
