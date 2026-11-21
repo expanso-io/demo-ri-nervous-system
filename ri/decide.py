@@ -4,8 +4,10 @@
 
 * A decision is fresh for 3 s. A stale decision is never acted on; the drone
   holds instead. A late message cannot move the drone.
-* Land needs the room's applause, or the presenter's jazz hands. Raised
-  hands are counted and shown, but no number of them lands the drone.
+* Land needs the room's applause once the route is flown, or the
+  presenter's jazz hands at any time. Applause before then is spent: the
+  wake claps and the cheer at take-off must not bring it straight back down.
+  Raised hands are counted and shown, but no number of them lands it.
 * Each word and each clap is acted on at most once.
 * The route is fixed. An arm signal releases its next leg only when it is
   the signal that leg asks for; it never steers, and once the route is flown
@@ -99,11 +101,13 @@ class Decider:
         word = self._pending("word", now, WORD_MIN)
         clap = self._pending("clap", now, CLAP_MIN)
         jazz = hands is not None and hands.gesture == "jazz"
-        applause = clap if clap is not None and clap.value == "applause" else None
+        heard = clap if clap is not None and clap.value == "applause" else None
+        landing = drone.phase == "landing"
+        route_flown = need is None or need == END
+        applause = heard if route_flown or landing else None
 
         # Rule 1, land: the safety reflex beats everything. It keeps holding
         # while the drone comes down, so a shout mid-descent still loses.
-        landing = drone.phase == "landing"
         if (drone.airborne or landing) and (jazz or applause is not None):
             source = applause if applause is not None else hands
             assert source is not None
@@ -167,8 +171,10 @@ class Decider:
         # clap during a landing (or the thump of the landing itself) would
         # wake the drone the instant it touched the floor.
         # Applause on the ground is spent too: it is never a wake.
-        grounded_applause = clap if clap is not None and clap.value == "applause" else None
-        self._consume(clap if drone.airborne or landing else grounded_applause)
+        self._consume(clap if drone.airborne or landing else heard)
+        if drone.airborne and heard is not None:
+            why = f"applause: wants the {need} leg first"
+            return Action("hold", why, None, (heard.label(),), t=now)
         if word is not None and not drone.airborne:
             self._consume(word)
             return Action("hold", "asleep: clap to wake", None, (word.label(),), t=now)

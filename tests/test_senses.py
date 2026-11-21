@@ -408,7 +408,7 @@ def test_the_marshal_is_never_someone_cut_off_by_the_frame_or_side_on() -> None:
     assert arm_pose(np.stack([presenter]), shape) == pytest.approx((-0.5, 1.6, 0.5, 1.6))
 
 
-def test_applause_needs_two_seconds_of_loud_clapping_and_waits_before_again() -> None:
+def test_applause_needs_seconds_of_clapping_and_waits_before_again() -> None:
     from collections import deque
     from types import SimpleNamespace
 
@@ -435,7 +435,7 @@ def test_applause_needs_two_seconds_of_loud_clapping_and_waits_before_again() ->
     # One person's quiet clapping is not the room.
     assert run(quiet, 10.0, 5.0) == []
     # The room: fires once the window has filled, then not again for 3 s.
-    fired = run(loud, 20.0, 5.0)
+    fired = run(loud, 20.0, 6.0)
     assert len(fired) == 2
-    assert 21.0 <= fired[0] <= 22.0
+    assert 21.5 <= fired[0] <= 22.5
     assert fired[1] - fired[0] > ClapDevice.APPLAUSE_AGAIN_S

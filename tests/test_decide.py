@@ -344,3 +344,21 @@ def test_an_up_heard_mid_climb_is_a_step_not_a_refusal(phase: Phase) -> None:
     d.observe(word("up"))
     action = d.decide(drone(phase, 0.6), NOW)
     assert (action.act, action.because) == ("up", "word up")
+
+
+def test_applause_waits_for_the_route_and_is_spent_before_it() -> None:
+    d = Decider()
+    # The wake claps spilling into take-off, and a cheer mid-route: spent.
+    d.observe(applause())
+    action = d.decide(drone("taking_off", 0.5), NOW, need="left")
+    assert (action.act, action.because) == ("hold", "applause: wants the left leg first")
+    assert d.decide(drone(), NOW + 0.1, need="end").act == "hold"
+    # Once the route is flown, the room's applause lands it.
+    d.observe(applause(t=NOW + 1, seq=2))
+    assert d.decide(drone(), NOW + 1, need="end").act == "land"
+
+
+def test_jazz_hands_land_it_mid_route() -> None:
+    d = Decider()
+    d.observe(hands(2, 1, gesture="jazz"))
+    assert d.decide(drone(), NOW, need="left").act == "land"

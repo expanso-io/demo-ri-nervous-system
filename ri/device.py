@@ -359,13 +359,15 @@ class ClapDevice(AudioDevice):
     NEAR_MISS_EVERY_S = 2.0
     # Applause, the room's land: over the last APPLAUSE_S, at least
     # APPLAUSE_SHARE of the windows sound like clapping, at an average loudness
-    # of at least APPLAUSE_LEVEL (0 is -60 dBFS, 1 is full scale). A hovering
-    # drone read 0.17 median and 0.35 at the 90th percentile on the laptop mic;
-    # the classifier, not the loudness, is what keeps its noise out.
-    # RI_APPLAUSE_LEVEL tunes the loudness on the day.
-    APPLAUSE_S = 2.0
+    # of at least APPLAUSE_LEVEL (0 is -60 dBFS, 1 is full scale). In the hall
+    # on the laptop mic a room clapping read 0.37-0.41 and the drone taking off
+    # beside the mic read 0.40 on its own, so loudness cannot tell them apart:
+    # the classifier does (it heard the drone as clapping 0% of the time and
+    # the room 100%). The level is only a floor against a near-silent room.
+    # RI_APPLAUSE_LEVEL raises it on the day.
+    APPLAUSE_S = 2.5
     APPLAUSE_SHARE = 0.7
-    APPLAUSE_LEVEL = float(os.environ.get("RI_APPLAUSE_LEVEL", "0.45"))
+    APPLAUSE_LEVEL = float(os.environ.get("RI_APPLAUSE_LEVEL", "0.25"))
     APPLAUSE_AGAIN_S = 3.0
 
     def __init__(self, *, input_mode: str = "fixture", device_spec: str | None = None) -> None:

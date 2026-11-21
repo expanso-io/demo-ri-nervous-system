@@ -803,7 +803,22 @@ function renderSenses(now) {
   const tally = $("hands-tally");
   const voteFill = $("vote-fill");
 
-  if (handsLive) {
+  // The bar is the room's applause: how much of the last few seconds sounded
+  // like clapping, against what the land needs. The tally falls back to hands.
+  const applause = clapTele?.applause;
+  const clapping = (applause?.share ?? 0) > 0.2;
+
+
+  if (clapping) {
+    const share = applause.share / (applause.need_share || 1);
+    const full = share >= 1 && applause.level >= applause.need_level;
+    voteFill.style.width = `${Math.round(Math.min(1, share) * 100)}%`;
+    voteFill.classList.toggle("majority", full);
+    voteFill.classList.toggle("waiting", !full);
+    tally.textContent = "applause";
+    tally.classList.toggle("majority", full);
+    tally.classList.toggle("waiting", !full);
+  } else if (handsLive) {
     const up = mHands.up ?? 0;
     voteFill.style.width = "0%";
     voteFill.classList.remove("majority", "waiting");

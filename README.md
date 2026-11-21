@@ -131,11 +131,14 @@ The flight is fixed. The room only releases each part of it.
    ahead and to the left, then stops. More points do nothing. Key: `3` or `A`.
 4. Point it right: both arms out to the camera's right. Its leg ahead and to
    the right, then it stops over the pad. Key: `4` or `D`.
-5. The room's applause brings it down: everyone claps, loud and steady, for
-   about two seconds (70% of the last two seconds must sound like clapping,
-   at mic level 0.45 or more; `RI_APPLAUSE_LEVEL` tunes the loudness). Or
-   jazz hands: both hands up beside your head, shaking. Either way the drone
-   lands and its motors stop. Keys: `5` or `H` for applause, `J` for jazz hands.
+5. The room's applause brings it down, once both legs are flown: everyone
+   claps, steady, for about three seconds (70% of the last 2.5 s must sound
+   like clapping; `RI_APPLAUSE_LEVEL`, default 0.25, is a loudness floor).
+   The bar under the camera fills as the room claps. Applause before the
+   route is done is ignored, so the room can cheer the take-off. Jazz hands
+   (both hands up beside your head, shaking) land it at any time. Either way
+   the drone lands and its motors stop. Keys: `5` or `H` for applause, `J`
+   for jazz hands.
 
 Every rig start records its whole bus to `.runtime/flights/` (the last 60
 starts are kept): each decision, each act, the drone's state ten times a
