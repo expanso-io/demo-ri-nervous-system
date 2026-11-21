@@ -4,12 +4,13 @@
 
 * A decision is fresh for 3 s. A stale decision is never acted on; the drone
   holds instead. A late message cannot move the drone.
-* Land needs 20 hands in the air at once, or the presenter's jazz hands.
+* Land needs the room's applause, or the presenter's jazz hands. Raised
+  hands are counted and shown, but no number of them lands the drone.
 * Each word and each clap is acted on at most once.
 * The route is fixed. An arm signal releases its next leg only when it is
   the signal that leg asks for; it never steers, and once the route is flown
   no wave moves the drone at all.
-* A clap wakes a sleeping drone; each up is one step higher, and an up
+* A clap wakes a sleeping drone (applause never does); each up is one step higher, and an up
   heard while it is still climbing is added to that climb.
 * When a land and a word arrive together, the land wins and the word is
   recorded as having lost. That rule is the whole safety system.
@@ -27,8 +28,6 @@ from ri.messages import Decision, Sense
 from ri.route import END
 
 FRESH_S = 3.0
-LAND_HANDS = 20
-WAIT_HANDS = 3  # a marshal's own two arms are not a vote
 CLAP_MIN = 0.5
 WORD_MIN = 0.5
 FLOOR_M = WAKE_ALTITUDE_M
@@ -100,14 +99,16 @@ class Decider:
         word = self._pending("word", now, WORD_MIN)
         clap = self._pending("clap", now, CLAP_MIN)
         jazz = hands is not None and hands.gesture == "jazz"
-        majority = hands is not None and (hands.up >= LAND_HANDS or jazz)
+        applause = clap if clap is not None and clap.value == "applause" else None
 
         # Rule 1, land: the safety reflex beats everything. It keeps holding
         # while the drone comes down, so a shout mid-descent still loses.
         landing = drone.phase == "landing"
-        if (drone.airborne or landing) and majority and hands is not None:
-            because = "jazz hands" if jazz else f"{hands.up} hands"
-            inputs = [hands.label()]
+        if (drone.airborne or landing) and (jazz or applause is not None):
+            source = applause if applause is not None else hands
+            assert source is not None
+            because = "applause" if applause is not None else "jazz hands"
+            inputs = [source.label()]
             # Name the word that lost, even one already acted on a moment ago.
             rival = word or self.fresh("word", now)
             if rival is not None and rival.value in ("up", "down", "stop"):
@@ -157,7 +158,7 @@ class Decider:
 
         # Rule 5, wake: a clap brings a dark or parked drone up to hover.
         grounded = not drone.airborne and drone.phase != "landing"
-        if grounded and clap is not None:
+        if grounded and clap is not None and clap.value != "applause":
             self._consume(clap)
             return Action("wake", "clap", "wake", (clap.label(),), t=now)
 
@@ -165,13 +166,12 @@ class Decider:
         # A clap heard while flying or coming down is spent. Left pending, a
         # clap during a landing (or the thump of the landing itself) would
         # wake the drone the instant it touched the floor.
-        self._consume(clap if drone.airborne or landing else None)
+        # Applause on the ground is spent too: it is never a wake.
+        grounded_applause = clap if clap is not None and clap.value == "applause" else None
+        self._consume(clap if drone.airborne or landing else grounded_applause)
         if word is not None and not drone.airborne:
             self._consume(word)
             return Action("hold", "asleep: clap to wake", None, (word.label(),), t=now)
-        if drone.airborne and hands is not None and not hands.gesture and hands.up >= WAIT_HANDS:
-            why = f"waiting: {hands.up} of {LAND_HANDS} hands"
-            return Action("hold", why, None, (hands.label(),), waiting=True, t=now)
         stale = [s for s in ("hands",) if s in self.latest and self.fresh(s, now) is None]
         if drone.airborne and stale:
             return Action("hold", "no fresh instruction", None, t=now)

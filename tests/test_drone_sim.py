@@ -105,12 +105,12 @@ def test_the_whole_show_wave_left_wave_right_then_the_room_lands_it() -> None:
     clock.t += 4.0
     assert drone.state().phase == "hovering"
 
-    # Over the pad: nineteen hands hold it there, twenty bring it down.
-    for seq, up in ((90, 19), (91, 20)):
-        now = 2000.0 + seq
-        decider.observe(Decision("hands", now, up=up, seen=14, share=1.0, seq=seq))
-        action = decider.decide(drone.state(), now, need(step))
-        assert action.act == ("land" if up >= 20 else "hold")
+    # Over the pad: raised hands hold it there, the room's applause brings it down.
+    now = 2090.0
+    decider.observe(Decision("hands", now, up=24, seen=14, share=1.0, seq=90))
+    assert decider.decide(drone.state(), now, need(step)).act == "hold"
+    decider.observe(Decision("clap", now + 1, confidence=0.8, value="applause", seq=91))
+    assert decider.decide(drone.state(), now + 1, need(step)).act == "land"
     drone.land()
     clock.t += 5.0
     assert drone.state().phase == "parked"

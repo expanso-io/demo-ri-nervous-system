@@ -141,9 +141,7 @@ const TRAIL_LABEL = { wake: "wake", up: "up", down: "down", stop: "stop", land: 
 const AIRBORNE = ["taking_off", "hovering", "climbing", "descending", "cruising", "landing"];
 
 /* What the presenter does with their arms for each signal the route asks for. */
-// The room lands the drone with this many hands in the air at once.
-const LAND_HANDS = 20;
-
+// The room lands the drone with applause; raised hands are only counted.
 const WAIT_HANDS = 3;
 
 const ARMS_HINT = { forward: "wave it ahead", left: "wave it left", right: "wave it right" };
@@ -709,7 +707,7 @@ function age(item, now) {
 function label(sense, m) {
   if (!m) return null;
 
-  if (sense === "clap") return `clap ${m.confidence.toFixed(2)}`;
+  if (sense === "clap") return `${m.value === "applause" ? "applause" : "clap"} ${m.confidence.toFixed(2)}`;
 
   if (sense === "word") return `${m.value} ${m.confidence.toFixed(2)}`;
 
@@ -807,15 +805,10 @@ function renderSenses(now) {
 
   if (handsLive) {
     const up = mHands.up ?? 0;
-    const pct = Math.max(0, Math.min(100, Math.round((up / LAND_HANDS) * 100)));
-    const majority = up >= LAND_HANDS;
-    const waiting = !majority && !mHands.gesture && up >= WAIT_HANDS;
-    voteFill.style.width = `${pct}%`;
-    voteFill.classList.toggle("majority", majority);
-    voteFill.classList.toggle("waiting", waiting);
-    tally.textContent = `${up} of ${LAND_HANDS}`;
-    tally.classList.toggle("majority", majority);
-    tally.classList.toggle("waiting", waiting);
+    voteFill.style.width = "0%";
+    voteFill.classList.remove("majority", "waiting");
+    tally.textContent = `${up} hands`;
+    tally.classList.remove("majority", "waiting");
   } else {
     voteFill.style.width = "0%";
     voteFill.classList.remove("majority", "waiting");
@@ -861,8 +854,8 @@ function render(now) {
 
     if (sense === "hands") {
       const counting = Boolean(m && n.live && !m.gesture);
-      slot.classList.toggle("majority", counting && m.up >= LAND_HANDS);
-      slot.classList.toggle("waiting", counting && m.up >= WAIT_HANDS && m.up < LAND_HANDS);
+      slot.classList.remove("majority");
+      slot.classList.toggle("waiting", counting && m.up >= WAIT_HANDS);
     }
   }
 
@@ -1192,7 +1185,7 @@ function apply(snapshot) {
           const loud = sense !== "hands" || hands?.up >= WAIT_HANDS;
           spawn(`imp-${sense}`, {
             speed: 3.4,
-            color: sense === "hands" && hands?.up >= LAND_HANDS ? COLORS.err : COLORS.ember,
+            color: sense === "clap" && snapshot.latest?.clap?.value === "applause" ? COLORS.err : COLORS.ember,
             size: loud ? 8 : 4,
             alpha: loud ? 0.95 : 0.7,
             trail: true,
@@ -1396,7 +1389,7 @@ const FORCE_KEYS = {
   a: ["hands", "left"],
   d: ["hands", "right"],
   j: ["hands", "jazz"],
-  h: ["hands", "crowd"],
+  h: ["clap", "applause"],
 };
 
 document.addEventListener("keydown", (event) => {
@@ -1407,7 +1400,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  // The show by number: 1 wake, 2 the ups, 3 left, 4 right, 5 the room lands it.
+  // The show by number: 1 wake, 2 the ups, 3 left, 4 right, 5 the room's applause lands it.
   if (/^[1-5]$/.test(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
 

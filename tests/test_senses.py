@@ -246,11 +246,15 @@ def test_marshal_signal_needs_a_wave_not_a_pose() -> None:
     from ri.senses.hands import marshal_signal
 
     assert marshal_signal(_arms(8, _beckon(-0.6), _beckon(0.6))) == "forward"
-    assert marshal_signal(_arms(8, _still(-1.6, 0.0), _beckon(0.6))) == "left"
-    assert marshal_signal(_arms(8, _beckon(-0.6), _still(1.6, 0.0))) == "right"
+    # Both arms out to one side, as rehearsal frames read a natural point.
+    assert marshal_signal(_arms(8, _still(-2.2, 0.3), _still(-1.9, 0.1))) == "left"
+    assert marshal_signal(_arms(8, _still(2.2, 0.3), _still(2.1, 0.1))) == "right"
+    # One arm out and the other hanging, or arms crossed to both sides, is not a point.
+    assert marshal_signal(_arms(8, _still(-2.0, 0.2), _still(-0.6, 1.6))) is None
+    assert marshal_signal(_arms(8, _still(-2.0, 0.2), _still(0.9, 0.2))) is None
     # Arms held up without moving are not a signal, and neither is pointing.
     assert marshal_signal(_arms(8, _still(-0.6, -1.0), _still(0.6, -1.0))) is None
-    assert marshal_signal(_arms(8, _still(-1.6, 0.0), _still(0.6, 1.0))) is None
+    assert marshal_signal(_arms(8, _still(-1.6, 1.5), _still(-1.4, 1.6))) is None
     # Raising both arms once travels a long way but never comes back.
     assert marshal_signal(_arms(8, _rise(-0.6), _rise(0.6))) is None
     assert marshal_signal(_arms(2, _beckon(-0.6), _beckon(0.6))) is None
@@ -402,3 +406,36 @@ def test_the_marshal_is_never_someone_cut_off_by_the_frame_or_side_on() -> None:
     assert chosen is not None and float(chosen[5][0]) == 1110.0
     assert marshal(np.stack([passer_by, side_on]), shape) is None
     assert arm_pose(np.stack([presenter]), shape) == pytest.approx((-0.5, 1.6, 0.5, 1.6))
+
+
+def test_applause_needs_two_seconds_of_loud_clapping_and_waits_before_again() -> None:
+    from collections import deque
+    from types import SimpleNamespace
+
+    from ri.device import ClapDevice
+
+    dev = ClapDevice.__new__(ClapDevice)
+    dev.applause = deque()
+    dev.applause_meter = {"share": 0.0, "level": 0.0}
+    dev.last_emit = {}
+    loud = SimpleNamespace(confidence=1.0, typing=0.0, rms=0.1)  # level 0.67
+    quiet = SimpleNamespace(confidence=1.0, typing=0.0, rms=0.003)  # level 0.16
+    drone = SimpleNamespace(confidence=0.1, typing=0.0, rms=0.1)
+
+    def run(score: SimpleNamespace, start: float, seconds: float) -> list[float]:
+        fired = []
+        for i in range(round(seconds / 0.25)):
+            now = start + i * 0.25
+            if dev.heard_applause(score, now):
+                fired.append(now)
+        return fired
+
+    # A loud drone that does not sound like clapping never lands it.
+    assert run(drone, 0.0, 5.0) == []
+    # One person's quiet clapping is not the room.
+    assert run(quiet, 10.0, 5.0) == []
+    # The room: fires once the window has filled, then not again for 3 s.
+    fired = run(loud, 20.0, 5.0)
+    assert len(fired) == 2
+    assert 21.0 <= fired[0] <= 22.0
+    assert fired[1] - fired[0] > ClapDevice.APPLAUSE_AGAIN_S

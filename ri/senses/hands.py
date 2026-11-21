@@ -42,13 +42,19 @@ EDGE_RATIO = 0.02
 FACING_RATIO = 0.6
 POINTS = (*SHOULDERS, *ELBOWS, *WRISTS)
 Roi = tuple[float, float, float, float]
-# How far past the shoulders both wrists must reach, in shoulder widths,
-# before two arms count as pointing that way.
-SIDE_REACH = 0.6
 RAISE_REACH = 0.3
 # A wave: a wrist that travels this many shoulder widths inside the window.
 WAVE_TRAVEL = 1.2
 WAVE_MIN_FRAMES = 4
+# Pointing: over the last POINT_FRAMES frames (10 a second), both wrists on
+# one side, each past POINT_EACH and on average past POINT_REACH shoulder
+# widths from the middle, neither lower than POINT_DROP below the shoulders
+# (hanging arms read about 1.5). Rehearsal frames of a natural point read
+# about 2 across and 0.3 down.
+POINT_FRAMES = 6
+POINT_EACH = 0.5
+POINT_REACH = 1.3
+POINT_DROP = 1.2
 # Jazz hands: both wrists up, one each side, each shaking inside a small box.
 # The model sees wrists, not fingers, so the shake is what it reads: travel
 # of at least JAZZ_TRAVEL inside a box no wider than JAZZ_EXTENT. A beckon
@@ -263,10 +269,11 @@ def arm_readout(poses: list[Arms]) -> dict[str, object] | None:
 def marshal_signal(poses: list[Arms]) -> str | None:
     """The signal a ground marshal is giving, read from a second or so of arms.
 
-    Both arms raised and beckoning is ahead. One arm held out to a side while
-    the other beckons is a turn to that side, as the camera sees it. Both
-    hands up, one each side, shaking: jazz hands, which lands the drone.
-    Arms that are still, however they are held, are no signal at all.
+    Both arms pointing out to one side is a turn to that side, as the camera
+    (and the audience behind it) sees it: the way people point when they are
+    not told how, read off rehearsal frames. Both hands up, one each side,
+    shaking: jazz hands, which lands the drone. Both arms raised and
+    beckoning is ahead. Arms hanging, however they move, are no signal.
     """
     if len(poses) < WAVE_MIN_FRAMES:
         return None
@@ -278,15 +285,27 @@ def marshal_signal(poses: list[Arms]) -> str | None:
     apart = mean[0][0] * mean[1][0] < 0
     if all(raised) and apart and all(_shaking(t) for t in wrists):
         return "jazz"
-    for held, other in ((0, 1), (1, 0)):
-        if not (raised[other] and waving[other]) or waving[held]:
-            continue
-        if mean[held][0] < -(0.5 + SIDE_REACH):
-            return "left"
-        if mean[held][0] > 0.5 + SIDE_REACH:
-            return "right"
+    side = pointing(poses[-POINT_FRAMES:])
+    if side is not None:
+        return side
     if all(raised) and any(waving):
         return "forward"
+    return None
+
+
+def pointing(poses: list[Arms]) -> str | None:
+    """Both arms out to the same side, at about shoulder height, just now."""
+    if not poses:
+        return None
+    n = len(poses)
+    xs = (sum(p[0] for p in poses) / n, sum(p[2] for p in poses) / n)
+    downs = (sum(p[1] for p in poses) / n, sum(p[3] for p in poses) / n)
+    if max(downs) > POINT_DROP:
+        return None  # an arm hanging by the side is not pointing
+    if all(x < -POINT_EACH for x in xs) and sum(xs) / 2 < -POINT_REACH:
+        return "left"
+    if all(x > POINT_EACH for x in xs) and sum(xs) / 2 > POINT_REACH:
+        return "right"
     return None
 
 

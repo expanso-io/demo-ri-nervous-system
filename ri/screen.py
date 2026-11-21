@@ -60,7 +60,7 @@ STAGES: dict[int, tuple[str, str]] = {
     2: ("word", "up"),
     3: ("hands", "left"),
     4: ("hands", "right"),
-    5: ("hands", "crowd"),
+    5: ("clap", "applause"),
 }
 GROUNDED = ("dark", "parked", "landing")
 TYPES = {

@@ -2,7 +2,7 @@
 
     just up large    the stage: lift to 1.0 m, three ups to 2.0 m, legs of 1.0 m
     just up small    a hotel room: lift to 0.4 m, five ups to 0.9 m, legs of 0.6 m
-    just up hall     a big hall: lift to 2.0 m, two ups to 4.0 m, legs of 2.0 m
+    just up hall     a big hall: lift to 2.0 m, two ups to 4.0 m, legs of 1.0 m
 
 The launcher hands the choice to every service as RI_ROOM and remembers it in
 .runtime/room, so `just again` flies the same room until told otherwise.
@@ -69,7 +69,8 @@ ROOMS: dict[str, Room] = {
         wake_m=2.0,
         step_m=1.0,
         ceiling_m=4.0,
-        leg_m=2.0,
+        # 2 m legs took 5.5 s each and went too far in rehearsal.
+        leg_m=1.0,
         ups=2,
         climb_max=90,
         timed_up=(90, 2.0),

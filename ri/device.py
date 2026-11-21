@@ -23,6 +23,7 @@ import argparse
 import contextlib
 import json
 import logging
+import math
 import os
 import signal
 import threading
@@ -96,7 +97,7 @@ def pink(n: int, rng: np.random.Generator) -> Array:
 
 
 FORCEABLE: dict[str, tuple[str, ...]] = {
-    "clap": ("clap",),
+    "clap": ("clap", "applause"),
     "word": ("up", "down", "stop"),
     "hands": ("forward", "left", "right", "jazz", "crowd"),
 }
@@ -113,7 +114,8 @@ def forced_decision(sense: str, value: str, seq: int) -> Decision:
         raise ValueError(f"cannot force {value!r} on {sense!r}")
     now = time.time()
     if sense == "clap":
-        return Decision("clap", now, confidence=0.99, seq=seq)
+        heard = "applause" if value == "applause" else None
+        return Decision("clap", now, confidence=0.99, value=heard, seq=seq)
     if sense == "word":
         return Decision("word", now, confidence=0.99, value=value, seq=seq)
     if value == "crowd":
@@ -355,12 +357,25 @@ class ClapDevice(AudioDevice):
     WINDOWS_NEEDED = 3
     TYPING_MAX = 0.3
     NEAR_MISS_EVERY_S = 2.0
+    # Applause, the room's land: over the last APPLAUSE_S, at least
+    # APPLAUSE_SHARE of the windows sound like clapping, at an average loudness
+    # of at least APPLAUSE_LEVEL (0 is -60 dBFS, 1 is full scale). A hovering
+    # drone read 0.17 median and 0.35 at the 90th percentile on the laptop mic;
+    # the classifier, not the loudness, is what keeps its noise out.
+    # RI_APPLAUSE_LEVEL tunes the loudness on the day.
+    APPLAUSE_S = 2.0
+    APPLAUSE_SHARE = 0.7
+    APPLAUSE_LEVEL = float(os.environ.get("RI_APPLAUSE_LEVEL", "0.45"))
+    APPLAUSE_AGAIN_S = 3.0
 
     def __init__(self, *, input_mode: str = "fixture", device_spec: str | None = None) -> None:
         super().__init__("clap", input_mode=input_mode, device_spec=device_spec)
         self.claps: deque[float] = deque()
         self.clap_windows: deque[float] = deque()
         self.near_miss_at = 0.0
+        # (time, sounds like clapping, loudness) for each recent window.
+        self.applause: deque[tuple[float, bool, float]] = deque()
+        self.applause_meter: dict[str, float] = {"share": 0.0, "level": 0.0}
         from ri.senses.clap import ClapDetector
 
         self.model = ClapDetector()
@@ -372,6 +387,13 @@ class ClapDevice(AudioDevice):
         with self.lock:
             self.windows += 1
             windows = self.windows
+            applause = self.heard_applause(score, now)
+            share = self.applause_meter["share"]
+        if applause:
+            decision = Decision(
+                "clap", now, confidence=share, value="applause", seq=self.next_seq()
+            )
+            return decision.to_json()
         fresh = now - self.last_emit.get("clap", 0.0) > self.REFRACTORY_S
         clapping = score.triggered(self.MIN_CONFIDENCE) and score.typing < self.TYPING_MAX
         enough = self.input_mode != "live" or self.enough_claps(window, now, clapping)
@@ -382,6 +404,37 @@ class ClapDevice(AudioDevice):
             decision = Decision("clap", now, confidence=score.confidence, seq=self.next_seq())
             return decision.to_json()
         return {"sense": None, "window": windows, "heard": round(score.confidence, 2)}
+
+    def heard_applause(self, score: Any, now: float) -> bool:
+        """A room clapping: most of the last two seconds sound like it, loud enough.
+
+        No sharp-onset gate here: a crowd's applause is a wash with no quiet
+        between the claps for an onset to rise out of. Called with the lock held.
+        """
+        level = max(0.0, min(1.0, (20 * math.log10(score.rms + 1e-9) + 60) / 60))
+        clapping = score.confidence >= self.MIN_CONFIDENCE and score.typing < self.TYPING_MAX
+        self.applause.append((now, clapping, level))
+        while self.applause and now - self.applause[0][0] > self.APPLAUSE_S:
+            self.applause.popleft()
+        share = sum(c for _, c, _ in self.applause) / len(self.applause)
+        loud = sum(lv for _, _, lv in self.applause) / len(self.applause)
+        self.applause_meter = {"share": round(share, 2), "level": round(loud, 3)}
+        filled = now - self.applause[0][0] >= self.APPLAUSE_S - 0.5
+        again = now - self.last_emit.get("applause", 0.0) > self.APPLAUSE_AGAIN_S
+        heard = filled and again and share >= self.APPLAUSE_SHARE and loud >= self.APPLAUSE_LEVEL
+        if heard:
+            self.last_emit["applause"] = now
+            log.info("applause: %.0f%% of windows clapping at level %.2f", share * 100, loud)
+        return heard
+
+    def telemetry(self) -> dict[str, Any]:
+        body = super().telemetry()
+        body["applause"] = {
+            **self.applause_meter,
+            "need_share": self.APPLAUSE_SHARE,
+            "need_level": self.APPLAUSE_LEVEL,
+        }
+        return body
 
     def enough_claps(self, window: Array, now: float, clapping: bool) -> bool:
         """A live wake: five claps at a steady beat, heard as clapping more than once."""

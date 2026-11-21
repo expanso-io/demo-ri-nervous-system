@@ -22,6 +22,10 @@ def word(value: str, t: float = NOW, conf: float = 0.81, seq: int = 1) -> Decisi
     return Decision("word", t, confidence=conf, value=value, seq=seq)
 
 
+def applause(t: float = NOW, share: float = 0.85, seq: int = 1) -> Decision:
+    return Decision("clap", t, confidence=share, value="applause", seq=seq)
+
+
 def hands(up: int, seen: int, t: float = NOW, seq: int = 1, gesture: str | None = None) -> Decision:
     return Decision("hands", t, up=up, seen=seen, share=up / seen, gesture=gesture, seq=seq)
 
@@ -128,20 +132,27 @@ def test_future_timestamps_are_not_fresh() -> None:
     assert d.decide(drone(), NOW).act == "hold"
 
 
-def test_twenty_hands_land_the_drone() -> None:
+def test_the_rooms_applause_lands_the_drone() -> None:
     d = Decider()
-    d.observe(hands(20, 14))
+    d.observe(applause())
     action = d.decide(drone(), NOW)
-    assert (action.act, action.because, action.rule) == ("land", "20 hands", "land")
+    assert (action.act, action.because, action.rule) == ("land", "applause", "land")
+    assert action.inputs == ("applause 0.85",)
 
 
-def test_fewer_than_twenty_hands_waits_and_says_how_many() -> None:
+def test_hands_however_many_never_land_the_drone() -> None:
     d = Decider()
-    d.observe(hands(19, 14))
-    action = d.decide(drone(), NOW)
-    assert action.act == "hold"
-    assert action.waiting
-    assert action.because == "waiting: 19 of 20 hands"
+    d.observe(hands(40, 30))
+    assert d.decide(drone(), NOW).act == "hold"
+
+
+def test_applause_never_wakes_a_parked_drone_and_is_spent() -> None:
+    d = Decider()
+    d.observe(applause())
+    assert d.decide(drone("parked", 0.0), NOW).act == "hold"
+    assert d.decide(drone("parked", 0.0), NOW + 0.1).act == "hold"
+    d.observe(clap(t=NOW + 0.2, seq=2))
+    assert d.decide(drone("parked", 0.0), NOW + 0.2).act == "wake"
 
 
 def test_a_marshal_waving_is_not_a_vote_to_land() -> None:
@@ -153,19 +164,18 @@ def test_a_marshal_waving_is_not_a_vote_to_land() -> None:
 
 def test_conflict_landing_wins_and_the_word_loses() -> None:
     d = Decider()
-    d.observe(hands(24, 30))
+    d.observe(applause())
     d.observe(word("up", conf=0.77))
     action = d.decide(drone(target=1.5), NOW)
     assert action.act == "land"
-    assert action.because == "24 hands > word up"
-    assert action.inputs == ("24 hands", "up 0.77")
-    # the shout was heard and lost: it is not replayed once the hands drop
-    d.observe(hands(5, 60, t=NOW + 0.5, seq=2))
+    assert action.because == "applause > word up"
+    assert action.inputs == ("applause 0.85", "up 0.77")
+    # the shout was heard and lost: it is not replayed once the applause stops
     assert d.decide(drone(target=1.5), NOW + 0.5).act == "hold"
 
 
 def test_conflict_is_deterministic_regardless_of_arrival_order() -> None:
-    for order in ((hands(24, 30), word("up")), (word("up"), hands(24, 30))):
+    for order in ((applause(), word("up")), (word("up"), applause())):
         d = Decider()
         for decision in order:
             d.observe(decision)
@@ -187,13 +197,13 @@ def test_land_does_nothing_on_the_ground() -> None:
 
 def test_older_message_never_replaces_newer() -> None:
     d = Decider()
-    d.observe(hands(50, 60, t=NOW))
+    d.observe(hands(2, 1, t=NOW, gesture="jazz"))
     d.observe(hands(1, 60, t=NOW - 1, seq=2))
     assert d.decide(drone(), NOW).act == "land"
 
 
 def test_parse_round_trip_and_rejects() -> None:
-    for decision in (clap(), word("down"), hands(37, 60)):
+    for decision in (clap(), applause(), word("down"), hands(37, 60)):
         assert parse_decision(decision.to_json()).label() == decision.label()
     with pytest.raises(MessageError):
         parse_decision({"sense": "smell"})
@@ -203,22 +213,27 @@ def test_parse_round_trip_and_rejects() -> None:
         parse_decision({"sense": "hands", "up": 3})
 
 
-def test_a_shout_during_the_descent_still_loses_to_the_hands() -> None:
+def test_a_shout_during_the_descent_still_loses() -> None:
     d = Decider()
-    d.observe(hands(24, 30))
+    d.observe(applause())
     assert d.decide(drone(target=1.5), NOW).act == "land"
     d.observe(word("up", t=NOW + 0.4))
     action = d.decide(drone("landing", 0.9), NOW + 0.4)
-    assert (action.act, action.because) == ("land", "24 hands > word up")
+    assert (action.act, action.because) == ("hold", "landing: word up ignored")
+    # Jazz hands keep holding the land through the descent and name the shout.
+    d.observe(hands(2, 1, t=NOW + 0.5, gesture="jazz", seq=2))
+    d.observe(word("up", t=NOW + 0.5, seq=3))
+    action = d.decide(drone("landing", 0.8), NOW + 0.5)
+    assert (action.act, action.because) == ("land", "jazz hands > word up")
 
 
 def test_the_land_names_a_word_acted_on_a_moment_before() -> None:
     d = Decider()
     d.observe(word("up"))
     assert d.decide(drone(), NOW).act == "up"
-    d.observe(hands(24, 30, t=NOW + 0.6))
+    d.observe(applause(t=NOW + 0.6))
     action = d.decide(drone("climbing", 1.2), NOW + 0.6)
-    assert action.because == "24 hands > word up"
+    assert action.because == "applause > word up"
 
 
 def test_a_word_while_landing_without_a_majority_is_ignored() -> None:
@@ -249,7 +264,7 @@ def test_stop_and_land_still_preempt_non_hovering_flight(phase: Phase) -> None:
     d.observe(word("stop", seq=1))
     assert d.decide(drone(phase, 1.2), NOW).act == "stop"
 
-    d.observe(hands(21, 18, t=NOW + 0.2, seq=2))
+    d.observe(applause(t=NOW + 0.2, seq=2))
     assert d.decide(drone(phase, 1.2), NOW + 0.2).act == "land"
 
 
@@ -305,7 +320,7 @@ def test_once_the_route_is_flown_no_wave_moves_the_drone() -> None:
 def test_the_end_of_the_route_waits_for_the_room() -> None:
     d = Decider()
     assert d.decide(drone(), NOW, need="end").act == "hold"
-    d.observe(hands(22, 15))
+    d.observe(applause())
     assert d.decide(drone(), NOW, need="end").act == "land"
 
 

@@ -765,7 +765,7 @@ class CoDroneEdu:
 
     def state(self) -> DroneState:
         try:
-            altitude = float(self._drone.get_height("m"))
+            altitude = self._shown_height(float(self._drone.get_height("m")))
             battery: int | None = int(self._drone.get_battery())
             age = self._reading_age()
             aloft = self._flying() is True
@@ -795,6 +795,20 @@ class CoDroneEdu:
             t=time.time(),
             raw=self._raw(),
         )
+
+    def _shown_height(self, reading: float) -> float:
+        """The height to show: the sensor's, or past its reach the barometer's.
+
+        Past its reach the sensor answers 10 m. Over the floor's barometer
+        reading the barometer gives the height instead (it drifted about
+        0.4 m over a flight in rehearsal); with neither, the last height.
+        """
+        if 0.0 <= reading <= SENSOR_MAX_M:
+            return reading
+        raw, floor = self._raw_last, self._floor_elev
+        if raw is not None and floor is not None:
+            return max(0.0, raw["elevation_m"] - floor)
+        return self._altitude
 
     def _raw(self) -> dict[str, float] | None:
         """The barometer and range sensor, twice a second, for the recorder.

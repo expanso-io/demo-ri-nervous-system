@@ -3,7 +3,7 @@
 **Three small devices, one tiny model each, and a few bytes between them are
 enough to let a room full of people fly a drone without a data centre.**
 
-A clap wakes the drone, a shouted word moves it, a show of hands lands it.
+A clap wakes the drone, a shouted word moves it, the room's applause lands it.
 Each sense is its own box with one model and one Expanso Edge pipeline that
 turns raw sound or pictures into one small decision. A fourth pipeline beside
 the drone applies one rule table (land > stop > move > wake) and flies it.
@@ -126,14 +126,16 @@ The flight is fixed. The room only releases each part of it.
 2. Say "up, up, up". Each one is a third of a metre, to 2.0 m, which is
    also the ceiling: a fourth up is refused. Key: `2` says all three, one
    after each hover; up arrow says one. (Small room: five ups of 0.1 m.)
-3. Wave it left: hold one arm straight out to the camera's left and wave
-   the other overhead. One metre, 45 degrees ahead and to the left, then it
-   stops. More waves do nothing. Key: `3` or `A`.
-4. Wave it right: the same, mirrored. One metre, 45 degrees ahead and to the right, then it
-   stops over the pad. More waves do nothing. Key: `4` or `D`.
-5. Jazz hands bring it down: both hands up beside your head, shaking.
-   Or the room raises hands, counted toward 20. Either way the drone lands
-   and its motors stop. Keys: `J` for jazz hands, `5` or `H` for the room.
+3. Point it left: both arms straight out to the camera's left (your right),
+   at shoulder height, for about half a second. The drone flies its leg
+   ahead and to the left, then stops. More points do nothing. Key: `3` or `A`.
+4. Point it right: both arms out to the camera's right. Its leg ahead and to
+   the right, then it stops over the pad. Key: `4` or `D`.
+5. The room's applause brings it down: everyone claps, loud and steady, for
+   about two seconds (70% of the last two seconds must sound like clapping,
+   at mic level 0.45 or more; `RI_APPLAUSE_LEVEL` tunes the loudness). Or
+   jazz hands: both hands up beside your head, shaking. Either way the drone
+   lands and its motors stop. Keys: `5` or `H` for applause, `J` for jazz hands.
 
 Every rig start records its whole bus to `.runtime/flights/` (the last 60
 starts are kept): each decision, each act, the drone's state ten times a

@@ -56,7 +56,7 @@ config:
               - label: clap_log
                 log:
                   level: INFO
-                  message: 'clap ${! this.confidence } seq=${! this.seq } sent to decide'
+                  message: '${! this.value.or("clap") } ${! this.confidence } sent to decide'
   output:
     label: clap_to_decide
     mqtt:

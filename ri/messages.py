@@ -44,7 +44,8 @@ class Decision:
     def label(self) -> str:
         """The short form the audience reads: `clap 0.93`, `up 0.81`, `hands 62%`."""
         if self.sense == "clap":
-            return f"clap {self.confidence:.2f}"
+            name = "applause" if self.value == "applause" else "clap"
+            return f"{name} {self.confidence:.2f}"
         if self.sense == "word":
             return f"{self.value} {self.confidence:.2f}"
         if self.gesture == "jazz":
@@ -57,6 +58,8 @@ class Decision:
         body: dict[str, Any] = {"sense": self.sense}
         if self.sense == "clap":
             body["confidence"] = round(self.confidence, 2)
+            if self.value:
+                body["value"] = self.value
         elif self.sense == "word":
             body["value"] = self.value
             body["confidence"] = round(self.confidence, 2)
@@ -85,7 +88,11 @@ def parse_decision(raw: bytes | str | dict[str, Any]) -> Decision:
         t = float(data.get("t", time.time()))
         seq = int(data.get("seq", 0))
         if sense == "clap":
-            return Decision("clap", t, confidence=float(data["confidence"]), seq=seq)
+            heard = data.get("value")
+            if heard not in (None, "applause"):
+                raise MessageError(f"unknown clap: {heard!r}")
+            conf = float(data["confidence"])
+            return Decision("clap", t, confidence=conf, value=heard, seq=seq)
         if sense == "word":
             value = str(data["value"])
             if value not in ("up", "down", "stop"):
