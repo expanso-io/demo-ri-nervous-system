@@ -376,3 +376,29 @@ def test_a_sharp_sound_that_carries_on_is_speech_not_a_clap() -> None:
     tone = (0.2 * np.sin(2 * np.pi * 180 * np.arange(int(0.25 * SR)) / SR)).astype(np.float32)
     audio[int(1.02 * SR) : int(1.02 * SR) + len(tone)] += tone
     assert onset_times(audio, SR) == []
+
+
+def _person(cx: float, cy: float, span: float, arm: float) -> Any:
+    """Shoulders `span` apart around (cx, cy), elbows `arm` below, wrists below those."""
+    p = np.zeros((17, 3), dtype=np.float32)
+    p[5], p[6] = (cx - span / 2, cy, 0.9), (cx + span / 2, cy, 0.9)
+    p[7], p[8] = (cx - span / 2, cy + arm, 0.9), (cx + span / 2, cy + arm, 0.9)
+    p[9], p[10] = (cx - span / 2, cy + 2 * arm, 0.9), (cx + span / 2, cy + 2 * arm, 0.9)
+    return p
+
+
+def test_the_marshal_is_never_someone_cut_off_by_the_frame_or_side_on() -> None:
+    from ri.senses.hands import arm_pose, marshal
+
+    shape = (720, 1280)
+    presenter = _person(640, 300, 100, 80)  # facing the camera, all in frame
+    passer_by = _person(1230, 250, 240, 160)  # close, wide, half out of frame
+    side_on = _person(400, 300, 20, 80)  # shoulders overlap: turned away
+    crowd = np.stack([passer_by, side_on, presenter])
+    chosen = marshal(crowd, shape)
+    assert chosen is not None and float(chosen[5][0]) == 590.0
+    # Without the frame size only the side-on rule applies, and the widest wins.
+    chosen = marshal(crowd)
+    assert chosen is not None and float(chosen[5][0]) == 1110.0
+    assert marshal(np.stack([passer_by, side_on]), shape) is None
+    assert arm_pose(np.stack([presenter]), shape) == pytest.approx((-0.5, 1.6, 0.5, 1.6))

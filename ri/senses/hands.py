@@ -33,6 +33,14 @@ HAND_MARGIN_RATIO = 0.05
 SHOULDERS = (5, 6)
 ARMS = ((7, 9), (8, 10))
 WRISTS = (9, 10)
+ELBOWS = (7, 8)
+# A keypoint this close to the frame's edge (of its shorter side) means the
+# person is cut off by it.
+EDGE_RATIO = 0.02
+# Facing the camera, shoulders are wider than an upper arm is long (about 1.2
+# times); side-on they shrink towards nothing.
+FACING_RATIO = 0.6
+POINTS = (*SHOULDERS, *ELBOWS, *WRISTS)
 Roi = tuple[float, float, float, float]
 # How far past the shoulders both wrists must reach, in shoulder widths,
 # before two arms count as pointing that way.
@@ -142,23 +150,62 @@ def hands_up(keypoints: Array, *, margin_ratio: float = 0.0) -> int:
     return votes
 
 
-def arm_pose(keypoints: Array) -> Arms | None:
-    """Where the nearest person's two wrists are, in shoulder widths.
+def marshal(keypoints: Array, shape: tuple[int, int] | None = None) -> Array | None:
+    """The person giving signals: the nearest one whose arms can really be read.
 
-    Each wrist is (across, down) from the middle of the shoulder line, so the
-    numbers mean the same thing however far the person stands from the camera.
-    The nearest person is the one with the widest shoulders in the frame.
+    Nearest is widest shoulders. Two kinds of person are passed over, because
+    each makes the widest-shoulders rule pick the wrong arms: someone cut off
+    by the edge of the frame (close to the camera, half out of shot), and
+    someone side-on to it, whose shoulders overlap so that every distance
+    measured in shoulder widths comes out several times too big.
     """
     best: Array | None = None
     best_span = 0.0
     for person in keypoints:
         if any(person[i][2] < KEYPOINT_MIN for i in (*SHOULDERS, *WRISTS)):
             continue
+        if shape is not None and _cut_off(person, shape):
+            continue
         span = abs(float(person[SHOULDERS[0]][0]) - float(person[SHOULDERS[1]][0]))
+        if span <= 0.0 or _side_on(person, span):
+            continue
         if span > best_span:
             best, best_span = person, span
-    if best is None or best_span <= 0.0:
+    return best
+
+
+def _cut_off(person: Array, shape: tuple[int, int]) -> bool:
+    h, w = shape
+    margin = EDGE_RATIO * min(h, w)
+    for i in (*SHOULDERS, *ELBOWS, *WRISTS):
+        x, y, conf = (float(v) for v in person[i])
+        if conf < KEYPOINT_MIN:
+            continue
+        if x < margin or x > w - margin or y < margin or y > h - margin:
+            return True
+    return False
+
+
+def _side_on(person: Array, span: float) -> bool:
+    """Shoulders much narrower than the upper arms are long: turned side-on."""
+    arms = [
+        math.dist(person[s][:2], person[e][:2])
+        for s, e in zip(SHOULDERS, ELBOWS, strict=True)
+        if person[s][2] >= KEYPOINT_MIN and person[e][2] >= KEYPOINT_MIN
+    ]
+    return bool(arms) and span < FACING_RATIO * (sum(arms) / len(arms))
+
+
+def arm_pose(keypoints: Array, shape: tuple[int, int] | None = None) -> Arms | None:
+    """Where the signalling person's two wrists are, in shoulder widths.
+
+    Each wrist is (across, down) from the middle of the shoulder line, so the
+    numbers mean the same thing however far the person stands from the camera.
+    """
+    best = marshal(keypoints, shape)
+    if best is None:
         return None
+    best_span = abs(float(best[SHOULDERS[0]][0]) - float(best[SHOULDERS[1]][0]))
     centre = (float(best[SHOULDERS[0]][0]) + float(best[SHOULDERS[1]][0])) / 2
     line = min(float(best[i][1]) for i in SHOULDERS)
     a, b = (
@@ -361,6 +408,9 @@ class HandCounter:
         self.margin_ratio = margin_ratio
         self.window: deque[FrameCount] = deque()
         self.readout: dict[str, object] | None = None
+        # Shoulders, elbows and wrists (x, y pixels) of whoever the arms were
+        # last read from, for `just arms --save` to draw.
+        self.marshal_px: list[list[int]] | None = None
 
     def detect_frame(
         self, image: Array, now: float | None = None
@@ -376,6 +426,12 @@ class HandCounter:
         empty = np.zeros((0, 17, 3), dtype=np.float32)
         raw = result.keypoints.data.cpu().numpy() if result.keypoints is not None else empty
         h, w = image.shape[:2]
+        chosen = marshal(np.asarray(raw), (h, w))
+        self.marshal_px = (
+            None
+            if chosen is None
+            else [[round(float(chosen[i][0])), round(float(chosen[i][1]))] for i in POINTS]
+        )
         filtered = filter_people(np.asarray(raw), roi=self.roi, shape=(h, w))
         seen = len(filtered)
         up = hands_up(filtered, margin_ratio=self.margin_ratio) if seen else 0
@@ -396,7 +452,7 @@ class HandCounter:
             time.time() if now is None else now,
             raw_up=up,
             raw_seen=seen,
-            arms=arm_pose(np.asarray(raw)),
+            arms=arm_pose(np.asarray(raw), shape=(h, w)),
         ), boxes
 
     def count_frame(self, image: Array, now: float | None = None) -> FrameCount:

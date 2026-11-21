@@ -626,6 +626,7 @@ class HandsDevice(Device):
         body["arms"] = self.arms_in_view
         # What the last window's arms measured, for `just arms`.
         body["arms_readout"] = self.counter.readout
+        body["marshal_px"] = self.counter.marshal_px
         if self.camera is not None and self.camera.device_name:
             body["camera"] = self.camera.device_name
         return body

@@ -70,8 +70,9 @@ flights nth="1":
 
 # Live readout of what the camera reads off your arms, twice a second, to
 # tune the left, right and jazz-hands signals. Needs the rig up.
-arms:
-    uv run python -m ri.arms
+# `just arms --save` also keeps each frame, arms drawn, in .runtime/arms/.
+arms *flags:
+    uv run python -m ri.arms {{flags}}
 
 # Zero the drone's gyro: drone still, on a hard, level table. Stops the rig
 # first (the Cloud jobs are kept); `just again` brings it back.
