@@ -144,7 +144,13 @@ const AIRBORNE = ["taking_off", "hovering", "climbing", "descending", "cruising"
 // The room lands the drone with applause; raised hands are only counted.
 const WAIT_HANDS = 3;
 
-const ARMS_HINT = { forward: "wave it ahead", left: "wave it left", right: "wave it right" };
+const ARMS_HINT = {
+  forward: "wave it ahead",
+  left: "point it left",
+  right: "point it right",
+  "left|right": "point it left or right",
+  "right|left": "point it left or right",
+};
 
 const LEG_LABEL = { forward: "ahead", left: "left", right: "right" };
 
@@ -951,7 +957,7 @@ function renderDecide(now) {
     $("why-label").textContent = "";
     const need = state.drone?.phase === "hovering" ? state.drone?.route?.need : null;
     const hint = ARMS_HINT[need] ? `next: ${ARMS_HINT[need]}` : "";
-    $("why").textContent = asleep && state.nodes["fly-drone"].live ? "say up to wake it" : hint;
+    $("why").textContent = asleep && state.nodes["fly-drone"].live ? "press 1 to wake it" : hint;
   } else {
     $("why-label").textContent = hold ? "holding" : `${shown.act}, because`;
     $("why").textContent = plainWhy(shown.because);

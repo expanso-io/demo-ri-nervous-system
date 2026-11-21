@@ -543,11 +543,34 @@ def test_each_stage_has_a_colour_under_way_and_another_once_it_arrives(
         assert fl.arrived_color(MAX_ALTITUDE_M - 0.1) is None  # a step, not the top
         assert fl.arrived_color(MAX_ALTITUDE_M) == "purple"
         seen = []
-        for _leg in ROUTE:
+        for leg in ROUTE:
             fl.drone._phase = "hovering"  # type: ignore[attr-defined]
-            fl.apply(Action("go", "wave", "route"))
+            fl.apply(Action("go", f"wave {leg}", "route"))
             seen.append((fl.drone.state().leds.color, fl.arrived_color(0.9)))
         assert seen == [("cyan", "yellow"), ("pink", "white")]
+    finally:
+        fl.shutdown()
+
+
+def test_the_legs_fly_in_either_order_then_wait_for_the_room(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ri.decide import Action
+    from ri.route import END, wanted
+
+    monkeypatch.setattr(flight_mod, "Bus", FakeBus)
+    fl = flight_mod.Flight("sim")
+    try:
+        assert wanted(fl.flown) == "left|right"
+        fl.drone._phase = "hovering"  # type: ignore[attr-defined]
+        fl.apply(Action("go", "wave right", "route"))
+        assert fl.flown == ["right"] and wanted(fl.flown) == "left"
+        # The same side again is not a leg: only the opposite side is.
+        fl.drone._phase = "hovering"  # type: ignore[attr-defined]
+        fl.apply(Action("go", "wave right", "route"))
+        assert fl.flown == ["right"]
+        fl.apply(Action("go", "wave left", "route"))
+        assert fl.flown == ["right", "left"] and wanted(fl.flown) == END
     finally:
         fl.shutdown()
 

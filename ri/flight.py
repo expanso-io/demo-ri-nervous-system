@@ -36,7 +36,7 @@ from ri.drone import (
 )
 from ri.messages import MessageError, parse_decision
 from ri.ports import DEFAULT_DRONE, port
-from ri.route import MOVE, ROUTE, need
+from ri.route import MOVE, ROUTE, wanted
 
 LOW_BATTERY_PCT = 20
 # After the presenter's stop nothing the room does can move the drone for
@@ -79,24 +79,26 @@ class Flight:
         self.bus = Bus("flight").start()
         self.last_action: Action | None = None
         self.decisions = 0
-        self.step = 0  # how much of the fixed route has been flown
+        self.flown: list[str] = []  # the legs of the route flown, in order
         self.quiet_until = 0.0
         self.stage: str | None = None
 
     def apply(self, action: Action) -> None:
         state = self.drone.state()
         stage: str | None = action.act
+        # A go names its leg: "wave left" flies the left leg.
+        leg = action.because.removeprefix("wave ") if action.act == "go" else None
         if action.act == "go":
-            stage = ROUTE[self.step] if self.step < len(ROUTE) else None
+            stage = leg if leg in ROUTE and leg not in self.flown else None
         if stage in LEDS:
             self.drone.set_leds(*LEDS[stage])
             self.stage = "up" if stage == "down" else stage
         if action.act == "wake":
-            self.step = 0
+            self.flown = []
             self.drone.take_off(WAKE_ALTITUDE_M)
-        elif action.act == "go" and self.step < len(ROUTE):
-            self.drone.move_horizontal(*MOVE[ROUTE[self.step]])
-            self.step += 1
+        elif action.act == "go" and leg in ROUTE and leg not in self.flown:
+            self.drone.move_horizontal(*MOVE[leg])
+            self.flown.append(leg)
         elif action.act == "up":
             self.drone.move_vertical(STEP_M)
         elif action.act == "down":
@@ -122,8 +124,8 @@ class Flight:
                 self.decider.suppress_pending()
                 action = Action("hold", "presenter stop", None, t=now)
             else:
-                wanted = need(self.step) if ROUTE_ON else None
-                action = self.decider.decide(self.drone.state(), now, wanted)
+                want = wanted(self.flown) if ROUTE_ON else None
+                action = self.decider.decide(self.drone.state(), now, want)
                 self.apply(action)
             self.last_action = action
             self.decisions += 1
@@ -175,7 +177,7 @@ class Flight:
                 self.decider.reset()
                 self.last_action = None
                 self.decisions = 0
-                self.step = 0
+                self.flown = []
                 return {"reset": True}
             self.drone.close()
             self.drone = make_adapter("sim")
@@ -211,7 +213,13 @@ class Flight:
             body = state.to_json()
             body["decisions"] = self.decisions
             if ROUTE_ON:
-                body["route"] = {"step": self.step, "legs": list(ROUTE), "need": need(self.step)}
+                # Legs in the order they are flown, then the rest.
+                legs = self.flown + [g for g in ROUTE if g not in self.flown]
+                body["route"] = {
+                    "step": len(self.flown),
+                    "legs": legs,
+                    "need": wanted(self.flown),
+                }
             self.bus.publish(DRONE_TOPIC, body)
             time.sleep(0.1)
 

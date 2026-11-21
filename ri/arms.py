@@ -91,7 +91,7 @@ def main() -> int:
     target = url("HANDS_DEVICE_PORT", "/status")
     print(
         f"wave {hands.WAVE_TRAVEL} travel, back near the start; raised: down < "
-        f"-{hands.RAISE_REACH}; point: both across beyond +-{hands.POINT_REACH} "
+        f"-{hands.RAISE_REACH}; point: an arm across beyond +-{hands.POINT_REACH} "
         f"and down under {hands.POINT_DROP}; "
         f"jazz: travel >= {hands.JAZZ_TRAVEL} in a box <= {hands.JAZZ_EXTENT}"
     )

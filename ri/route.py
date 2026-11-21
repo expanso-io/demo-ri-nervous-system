@@ -1,9 +1,10 @@
 """The route: a fixed path the drone may follow and nothing else.
 
-The path is decided here, before anyone is on stage. A marshal's wave never
-steers the drone; it only releases the next step of this path, and only when
-it is the signal that step asks for. Any other signal, or none, and the drone
-holds where it is.
+The path is decided here, before anyone is on stage. A marshal's point never
+steers the drone; it only releases a leg of this path that has not been
+flown yet. The legs go in either order (left then right, or right then left,
+end in the same place), so whichever way the presenter points first is
+flown. A leg already flown, or no signal, and the drone holds where it is.
 """
 
 from __future__ import annotations
@@ -34,3 +35,9 @@ MOVE: dict[Gesture, tuple[float, float]] = {
 def need(step: int) -> str:
     """The signal the next step asks for, or END once the path is flown."""
     return ROUTE[step] if 0 <= step < len(ROUTE) else END
+
+
+def wanted(flown: list[str]) -> str:
+    """Every leg not yet flown, as `left|right`, or END once the path is flown."""
+    left = [g for g in ROUTE if g not in flown]
+    return "|".join(left) if left else END

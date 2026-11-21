@@ -48,15 +48,15 @@ RAISE_REACH = 0.3
 # A wave: a wrist that travels this many shoulder widths inside the window.
 WAVE_TRAVEL = 1.2
 WAVE_MIN_FRAMES = 4
-# Pointing: over the last POINT_FRAMES frames (10 a second), both wrists on
-# one side, each past POINT_EACH and on average past POINT_REACH shoulder
-# widths from the middle, neither lower than POINT_DROP below the shoulders
-# (hanging arms read about 1.5). Rehearsal frames of a natural point read
-# about 2 across and 0.3 down.
+# Pointing: over the last POINT_FRAMES frames (10 a second), either arm held
+# out to one side, its wrist past POINT_REACH shoulder widths from the middle
+# and no lower than POINT_DROP below the shoulders (a hanging arm reads about
+# 1.5), and the other arm not out past POINT_OTHER the opposite way (that is
+# arms spread, not a point). Rehearsal points read 1.3-2.2 across, 0.0-0.8 down.
 POINT_FRAMES = 6
-POINT_EACH = 0.5
-POINT_REACH = 1.3
+POINT_REACH = 1.2
 POINT_DROP = 1.2
+POINT_OTHER = 0.8
 # Jazz hands: both wrists up, one each side, each shaking inside a small box.
 # The model sees wrists, not fingers, so the shake is what it reads: travel
 # of at least JAZZ_TRAVEL inside a box no wider than JAZZ_EXTENT. A beckon
@@ -275,9 +275,8 @@ def arm_readout(poses: list[Arms]) -> dict[str, object] | None:
 def marshal_signal(poses: list[Arms]) -> str | None:
     """The signal a ground marshal is giving, read from a second or so of arms.
 
-    Both arms pointing out to one side is a turn to that side, as the camera
-    (and the audience behind it) sees it: the way people point when they are
-    not told how, read off rehearsal frames. Both hands up, one each side,
+    An arm held out to one side (or both) is a turn to that side, as the
+    camera (and the audience behind it) sees it. Both hands up, one each side,
     shaking: jazz hands, which lands the drone. Both arms raised and
     beckoning is ahead. Arms hanging, however they move, are no signal.
     """
@@ -300,19 +299,20 @@ def marshal_signal(poses: list[Arms]) -> str | None:
 
 
 def pointing(poses: list[Arms]) -> str | None:
-    """Both arms out to the same side, at about shoulder height, just now."""
+    """An arm out to one side, at about shoulder height, just now. One is enough."""
     if not poses:
         return None
     n = len(poses)
-    xs = (sum(p[0] for p in poses) / n, sum(p[2] for p in poses) / n)
-    downs = (sum(p[1] for p in poses) / n, sum(p[3] for p in poses) / n)
-    if max(downs) > POINT_DROP:
-        return None  # an arm hanging by the side is not pointing
-    if all(x < -POINT_EACH for x in xs) and sum(xs) / 2 < -POINT_REACH:
-        return "left"
-    if all(x > POINT_EACH for x in xs) and sum(xs) / 2 > POINT_REACH:
-        return "right"
-    return None
+    wrists = [
+        (sum(p[0] for p in poses) / n, sum(p[1] for p in poses) / n),
+        (sum(p[2] for p in poses) / n, sum(p[3] for p in poses) / n),
+    ]
+    out, other = sorted(wrists, key=lambda w: abs(w[0]), reverse=True)
+    if abs(out[0]) < POINT_REACH or out[1] > POINT_DROP:
+        return None
+    if other[0] * out[0] < 0 and abs(other[0]) > POINT_OTHER:
+        return None  # arms spread both ways
+    return "left" if out[0] < 0 else "right"
 
 
 def hand_boxes_from_pose(

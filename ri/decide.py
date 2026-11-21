@@ -9,9 +9,8 @@
   wake claps and the cheer at take-off must not bring it straight back down.
   Raised hands are counted and shown, but no number of them lands it.
 * Each word and each clap is acted on at most once.
-* The route is fixed. An arm signal releases its next leg only when it is
-  the signal that leg asks for; it never steers, and once the route is flown
-  no wave moves the drone at all.
+* The route is fixed. An arm signal releases a leg not yet flown, in either
+  order; it never steers, and once the route is flown no wave moves it.
 * Only the presenter wakes a sleeping drone, from the board. A clap heard
   in the room never wakes it: claps are for landing it. Each up is one step higher, and an up
   heard while it is still climbing is added to that climb.
@@ -155,10 +154,13 @@ class Decider:
         flying_route = need is not None and need != END
         if drone.phase == "hovering" and flying_route and signal is not None and signal.gesture:
             self._consume(signal)
-            if signal.gesture == need:
-                return Action("go", f"wave {need}", "route", (signal.label(),), t=now)
+            assert need is not None
+            if signal.gesture in need.split("|"):
+                why = f"wave {signal.gesture}"
+                return Action("go", why, "route", (signal.label(),), t=now)
+            want = need.replace("|", " or ")
             return Action(
-                "hold", f"wants a wave {need}", "route", (signal.label(),), waiting=True, t=now
+                "hold", f"wants a wave {want}", "route", (signal.label(),), waiting=True, t=now
             )
 
         # Rule 5, wake: the presenter's wake brings a dark or parked drone up

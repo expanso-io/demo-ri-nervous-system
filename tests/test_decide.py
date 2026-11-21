@@ -374,3 +374,13 @@ def test_jazz_hands_land_it_mid_route() -> None:
     d = Decider()
     d.observe(hands(2, 1, gesture="jazz"))
     assert d.decide(drone(), NOW, need="left").act == "land"
+
+
+def test_either_side_first_then_only_the_other() -> None:
+    d = Decider()
+    d.observe(hands(1, 1, gesture="right"))
+    action = d.decide(drone(), NOW, need="left|right")
+    assert (action.act, action.because) == ("go", "wave right")
+    d.observe(hands(1, 1, t=NOW + 1, gesture="right", seq=2))
+    action = d.decide(drone(), NOW + 1, need="left")
+    assert (action.act, action.because) == ("hold", "wants a wave left")

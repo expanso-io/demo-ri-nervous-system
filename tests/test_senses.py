@@ -249,8 +249,9 @@ def test_marshal_signal_needs_a_wave_not_a_pose() -> None:
     # Both arms out to one side, as rehearsal frames read a natural point.
     assert marshal_signal(_arms(8, _still(-2.2, 0.3), _still(-1.9, 0.1))) == "left"
     assert marshal_signal(_arms(8, _still(2.2, 0.3), _still(2.1, 0.1))) == "right"
-    # One arm out and the other hanging, or arms crossed to both sides, is not a point.
-    assert marshal_signal(_arms(8, _still(-2.0, 0.2), _still(-0.6, 1.6))) is None
+    # One arm out is enough, the other hanging; arms spread both ways is not a point.
+    assert marshal_signal(_arms(8, _still(-2.0, 0.2), _still(-0.6, 1.6))) == "left"
+    assert marshal_signal(_arms(8, _still(0.5, 1.5), _still(1.6, 0.4))) == "right"
     assert marshal_signal(_arms(8, _still(-2.0, 0.2), _still(0.9, 0.2))) is None
     # Arms held up without moving are not a signal, and neither is pointing.
     assert marshal_signal(_arms(8, _still(-0.6, -1.0), _still(0.6, -1.0))) is None

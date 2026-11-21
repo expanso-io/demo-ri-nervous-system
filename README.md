@@ -127,11 +127,12 @@ The flight is fixed. The room only releases each part of it.
 2. Say "up, up, up". Each one is a third of a metre, to 2.0 m, which is
    also the ceiling: a fourth up is refused. Key: `2` says all three, one
    after each hover; up arrow says one. (Small room: five ups of 0.1 m.)
-3. Point it left: both arms straight out to the camera's left (your right),
-   at shoulder height, for about half a second. The drone flies its leg
-   ahead and to the left, then stops. More points do nothing. Key: `3` or `A`.
-4. Point it right: both arms out to the camera's right. Its leg ahead and to
-   the right, then it stops over the pad. Key: `4` or `D`.
+3. Point it to one side: an arm (or both) held straight out to either side
+   at shoulder height, for about half a second. The drone flies that side's
+   leg, ahead and to the left or right, then stops. Key: `3`/`A` for left,
+   `4`/`D` for right.
+4. Point it the other way. Only the opposite side flies now; the same side
+   again does nothing. The two legs end over the pad in either order.
 5. The room's applause brings it down, once both legs are flown: everyone
    claps, steady, for about three seconds (70% of the last 2.5 s must sound
    like clapping; `RI_APPLAUSE_LEVEL`, default 0.25, is a loudness floor).
