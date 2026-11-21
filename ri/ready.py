@@ -39,6 +39,9 @@ class Check:
     ok: bool
     detail: str
     fix: str = ""
+    # A failure that clears up by itself on a rig that has just started, so
+    # it is worth waiting for. Every other failure needs a person.
+    settles: bool = False
 
 
 def _wrong_mic(device: dict[str, Any]) -> bool:
@@ -62,6 +65,7 @@ def judge(
             len(live) == len(PIPELINES),
             f"{len(live)} of {len(PIPELINES)} running",
             "flip the collection switch on the board, or `just start`",
+            settles=True,
         )
     )
     checks.append(
@@ -80,7 +84,9 @@ def judge(
         flowing = after.get("captured_bytes", 0) > before.get("captured_bytes", 0)
         loud = max([after.get("level", 0), before.get("level", 0), *(after.get("wave") or [0])])
         if not flowing:
-            checks.append(Check(f"mic {name}", False, "no audio arriving", "`just again`"))
+            checks.append(
+                Check(f"mic {name}", False, "no audio arriving", "`just again`", settles=True)
+            )
         elif loud <= 0:
             checks.append(
                 Check(
@@ -205,8 +211,12 @@ def main() -> int:
             checks = survey(url)
         except OSError as error:
             checks = [Check("screen", False, f"not reachable ({error})", "`just up` first")]
-        if all(c.ok for c in checks) or time.monotonic() >= deadline:
+        settling = [c.name for c in checks if not c.ok and c.settles]
+        # Only wait while something can still come right by itself: a mic that
+        # is the wrong one, or a drone in the air, will not, however long it is.
+        if not settling or time.monotonic() >= deadline:
             break
+        print(f"  waiting for {', '.join(settling)}", flush=True)
         time.sleep(2.0)
     print(f"  room  {room.named(room.remembered()).summary()}")
     for c in checks:

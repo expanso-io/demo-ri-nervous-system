@@ -545,3 +545,32 @@ def test_each_stage_has_a_colour_under_way_and_another_once_it_arrives(
         assert seen == [("cyan", "yellow"), ("pink", "white")]
     finally:
         fl.shutdown()
+
+
+def test_ready_waits_only_for_what_can_settle(monkeypatch: Any) -> None:
+    import sys
+
+    from ri import ready
+
+    calls: list[int] = []
+    plan = {
+        # A wrong mic will not fix itself: one look, then the answer.
+        "stuck": [ready.Check("mic hear-clap", False, "wrong mic")],
+        # Pipelines still starting: keep looking until they run.
+        "starting": [ready.Check("pipelines", False, "0 of 4 running", settles=True)],
+    }
+
+    def survey(_url: str, which: str) -> list[Any]:
+        calls.append(1)
+        if which == "starting" and len(calls) >= 3:
+            return [ready.Check("pipelines", True, "4 of 4 running")]
+        return plan[which]
+
+    monkeypatch.setattr(ready, "port", lambda _name: 1)
+    monkeypatch.setattr("ri.ready.time.sleep", lambda _s: None)
+    for which, looks, code in (("stuck", 1, 1), ("starting", 3, 0)):
+        calls.clear()
+        monkeypatch.setattr(ready, "survey", lambda url, w=which: survey(url, w))
+        monkeypatch.setattr(sys, "argv", ["ready", "--wait", "45"])
+        assert ready.main() == code
+        assert len(calls) == looks
