@@ -47,18 +47,18 @@ STOP_QUIET_S = 10.0
 ROUTE_ON = os.environ.get("RI_ROUTE", "1") != "0"
 log = logging.getLogger("ri.flight")
 
-# Each stage has one colour while the drone is getting there and another once
-# it has arrived, so the room can see a step finish. A stage is "wake", "up",
-# or the leg being flown.
+# Each stage blinks one colour while the drone is getting there and shows
+# another, solid, once it has arrived, so the room can see a step finish from
+# the back of a hall. A stage is "wake", "up", or the leg being flown.
 LEDS: dict[str, tuple[LedColor, LedMode]] = {
-    "wake": ("amber", "solid"),
-    "up": ("blue", "solid"),
-    "down": ("blue", "solid"),
+    "wake": ("amber", "blink"),
+    "up": ("blue", "blink"),
+    "down": ("blue", "blink"),
     "stop": ("white", "solid"),
-    "left": ("cyan", "solid"),
-    "right": ("pink", "solid"),
-    "forward": ("cyan", "solid"),
-    "land": ("red", "solid"),
+    "left": ("cyan", "blink"),
+    "right": ("pink", "blink"),
+    "forward": ("cyan", "blink"),
+    "land": ("red", "blink"),
 }
 ARRIVED: dict[str, LedColor] = {
     "wake": "green",  # at the start height

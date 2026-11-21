@@ -15,7 +15,8 @@ cameras:
     uv run python -m ri.capture
 
 # Default live rig: CoDrone EDU + live DJI/Mac mic + the first camera in default_cam that is plugged in.
-# `just up small` sizes the flight for a hotel room, `just up large` for the stage;
+# `just up small` sizes the flight for a hotel room, `just up large` for the stage,
+# `just up hall` for a big hall;
 # with no size it keeps the last one used. Override the rest with parameters
 # (for example `just up large sim fixture none`).
 up size="" drone=default_drone input="live" cam=default_cam mic=default_mic hands_input="":
@@ -60,6 +61,12 @@ again size="" drone=default_drone cam=default_cam mic=default_mic:
     uv run python -m ri.stack down --keep-jobs
     uv run python -m ri.stack up --room "{{size}}" --skip-deploy --drone {{drone}} --input live --clap-device "{{mic}}" --word-device "{{mic}}" --stage-cam "{{cam}}" --hands-device "{{cam}}" --hands-input live
     just ready 45
+
+# The last flight from the recorder, as a timeline: what was asked, how long
+# each move took to start and finish, heights reached, both height sensors.
+# `just flights 2` is the one before.
+flights nth="1":
+    uv run python -m ri.flightlog show {{nth}}
 
 # Live readout of what the camera reads off your arms, twice a second, to
 # tune the left, right and jazz-hands signals. Needs the rig up.

@@ -112,7 +112,10 @@ how it is checked.
 `just up large` is the stage: lift to 1.0 m, three ups to 2.0 m, ceiling
 2.0 m, legs of 1.0 m. `just up small` is a hotel room with about a
 king-size bed of clear floor: lift to 0.4 m, five ups to 0.9 m, ceiling 1.0 m,
-legs of 0.6 m. The rig keeps the last size used, prints it at launch and in
+legs of 0.6 m. `just up hall` is a big hall: five claps to 2.0 m, two ups of a metre each
+to 4.0 m, legs of 2.0 m, and a harder climb. The drone's height sensor reads
+to about 2 m (Robolink rate it to 1.5 m), so above that a climb loses its
+reading and stops where it is. The rig keeps the last size used, prints it at launch and in
 `just ready`, and `just again` reuses it. The sizes live in `ri/room.py`.
 
 ## Run of show
@@ -131,6 +134,13 @@ The flight is fixed. The room only releases each part of it.
 5. Jazz hands bring it down: both hands up beside your head, shaking.
    Or the room raises hands, counted toward 20. Either way the drone lands
    and its motors stop. Keys: `J` for jazz hands, `5` or `H` for the room.
+
+Every rig start records its whole bus to `.runtime/flights/` (the last 60
+starts are kept): each decision, each act, the drone's state ten times a
+second with its barometer and range sensor, and the camera's arm readout.
+`just flights` prints the last flight as a timeline, with how long each move
+took to start and to finish and how high it really got; `just flights 2` is
+the one before.
 
 `just arms` prints, twice a second, what the camera reads off your arms
 and which signal that makes, so the thresholds in `ri/senses/hands.py` can

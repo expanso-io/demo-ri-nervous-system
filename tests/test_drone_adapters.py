@@ -661,3 +661,26 @@ def test_an_up_heard_mid_climb_is_added_to_the_climb_under_way() -> None:
         _wait_until(lambda: abs(sdk.height_m - goal) <= 0.05 and drone.state().phase == "hovering")
     finally:
         drone.close()
+
+
+def test_codrone_leds_are_full_bright_and_blink_while_a_step_is_under_way() -> None:
+    class LedSDK(FakeCoDroneSDK):
+        def set_drone_LED_mode(self, r: int, g: int, b: int, mode: str, speed: int) -> None:
+            self.calls.append(("led_mode", (r, g, b, mode, speed)))
+
+        def get_altitude_data(self) -> list[float]:
+            return [0.0, 21.0, 101325.0, 42.5, self.height_m]
+
+    sdk = LedSDK()
+    drone = CoDroneEdu(sdk=sdk)
+    try:
+        drone.set_leds("blue", "blink")
+        drone.set_leds("green", "solid")
+        _wait_until(lambda: any(name == "set_drone_LED" for name, _ in sdk.calls))
+        assert ("led_mode", (0, 140, 255, "blink", 8)) in sdk.calls
+        assert ("set_drone_LED", (0, 255, 60, 255)) in sdk.calls
+        # The barometer and range sensor ride along for the flight recorder.
+        raw = drone.state().raw
+        assert raw == {"elevation_m": 42.5, "range_m": 1.0, "pressure_pa": 101325.0}
+    finally:
+        drone.close()

@@ -25,7 +25,7 @@ AIRBORNE: frozenset[str] = frozenset(
 LedColor = Literal[
     "off", "white", "blue", "amber", "red", "green", "yellow", "purple", "cyan", "pink"
 ]
-LedMode = Literal["off", "solid", "breathing"]
+LedMode = Literal["off", "solid", "breathing", "blink"]
 
 # Sized by the room (ri/room.py). On the stage a clap lifts the drone to
 # 1.0 m, each up is a third of a metre, and 2.0 m is the ceiling.
@@ -56,6 +56,8 @@ class DroneState:
     leds: Leds = field(default_factory=Leds)
     battery: int | None = None
     t: float = 0.0
+    # What the airframe's own sensors said, for the flight recorder.
+    raw: dict[str, float] | None = None
 
     @property
     def airborne(self) -> bool:

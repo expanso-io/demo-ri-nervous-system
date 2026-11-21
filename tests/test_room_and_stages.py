@@ -37,6 +37,10 @@ def test_a_small_room_shrinks_every_height_and_both_legs() -> None:
     assert (small["wake"], small["step"], small["max"]) == (0.4, 0.1, 1.0)
     assert (room.ROOMS["large"].ups, room.ROOMS["large"].top_m) == (3, 2.0)
     assert (room.ROOMS["small"].ups, room.ROOMS["small"].top_m) == (5, 0.9)
+    # The hall: five claps to 2 m, two ups of a metre to 4 m, 2 m legs, a hard climb.
+    hall = room.ROOMS["hall"]
+    assert (hall.wake_m, hall.step_m, hall.ups, hall.top_m, hall.ceiling_m) == (2, 1, 2, 4, 4)
+    assert (hall.leg_m, hall.climb_max) == (2.0, 90)
     # Two 0.6 m diagonals: 0.85 m ahead of takeoff, back on the centre line.
     ahead = small["left"][0] + small["right"][0]
     assert ahead == pytest.approx(0.849, abs=0.001)

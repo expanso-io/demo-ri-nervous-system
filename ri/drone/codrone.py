@@ -31,7 +31,10 @@ log = logging.getLogger("ri.drone.codrone")
 # At or below this the drone is on the floor and its motors may be cut.
 GROUND_M = 0.15
 LOWEST_M = 0.3
-SENSOR_MAX_M = 3.0
+# Robolink rate the bottom range sensor to 1.5 m and report 0 to 200 cm:
+# anything past this is not a height. Above it a climb has no reading, and
+# within a second it stops and hovers where it is.
+SENSOR_MAX_M = 2.2
 # The slowest the airframe's own position moves go, in metres a second.
 MOVE_SPEED = 0.5
 CEILING_SLACK_M = 0.15
@@ -42,7 +45,7 @@ HEIGHT_TOLERANCE_M = 0.05
 # second and a step took four seconds; capped at 100 it climbed 0.5 m a
 # second and swung 15 cm past every goal. These sit between the two.
 THROTTLE_PER_M = 250.0
-CLIMB_MAX = 55
+CLIMB_MAX = current_room().climb_max
 SINK_MAX = 30
 THROTTLE_MIN = 30
 # The height has to sit on the goal this long: passing through it is not arriving.
@@ -78,6 +81,11 @@ BLIND_S = 1.0
 # A reading older than this is the last thing a silent drone said, not a height.
 STALE_S = 1.0
 
+# 1 to 10; at 8 the SDK flashes every 300 ms.
+LED_BLINK_SPEED = 8
+# The barometer and the range sensor are read this often for the recorder.
+RAW_EVERY_S = 0.5
+
 RGB: dict[str, tuple[int, int, int]] = {
     "off": (0, 0, 0),
     "white": (255, 255, 255),
@@ -105,6 +113,8 @@ class CoDroneEdu:
         fence_m: float | None = None,
     ) -> None:
         self._fence_m = current_room().fence_m if fence_m is None else fence_m
+        self._raw_at = 0.0
+        self._raw_last: dict[str, float] | None = None
         self._settle_s = settle_s
         self._grounded_s = grounded_s
         self._floor_since: float | None = None
@@ -630,7 +640,17 @@ class CoDroneEdu:
     def set_leds(self, color: LedColor, mode: LedMode) -> None:
         self._leds = Leds(color, mode)
         r, g, b = RGB[color]
-        self._worker.submit("set_leds", lambda: self._drone.set_drone_LED(r, g, b, 100))
+
+        # Full brightness: across a hall a dimmed LED is not seen at all.
+        def show() -> None:
+            if mode == "blink" and hasattr(self._drone, "set_drone_LED_mode"):
+                self._drone.set_drone_LED_mode(r, g, b, "blink", LED_BLINK_SPEED)
+            elif mode == "breathing" and hasattr(self._drone, "set_drone_LED_mode"):
+                self._drone.set_drone_LED_mode(r, g, b, "dimming", 5)
+            else:
+                self._drone.set_drone_LED(r, g, b, 255)
+
+        self._worker.submit("set_leds", show)
 
     def emergency(self) -> None:
         self._abort.set()
@@ -682,4 +702,26 @@ class CoDroneEdu:
             leds=leds,
             battery=battery,
             t=time.time(),
+            raw=self._raw(),
         )
+
+    def _raw(self) -> dict[str, float] | None:
+        """The barometer and range sensor, twice a second, for the recorder.
+
+        Above the range sensor's reach the barometer is the only height there
+        is, so every flight records both to see how far it can be trusted.
+        """
+        now = time.monotonic()
+        if now - self._raw_at < RAW_EVERY_S:
+            return self._raw_last
+        self._raw_at = now
+        try:
+            data = self._drone.get_altitude_data()
+            self._raw_last = {
+                "elevation_m": round(float(data[3]), 3),
+                "range_m": round(float(data[4]), 3),
+                "pressure_pa": round(float(data[2]), 1),
+            }
+        except Exception:
+            log.debug("altitude data read failed", exc_info=True)
+        return self._raw_last

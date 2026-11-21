@@ -86,6 +86,7 @@ def services() -> list[tuple[str, list[str]]]:
     py = [sys.executable, "-m"]
     found = [
         ("broker", [*py, "ri.broker"]),
+        ("flightlog", [*py, "ri.flightlog"]),
         ("device-clap", [*py, "ri.device", "clap"]),
         ("device-word", [*py, "ri.device", "word"]),
         ("device-hands", [*py, "ri.device", "hands"]),
@@ -228,6 +229,7 @@ def up(args: argparse.Namespace) -> int:
     print("services")
     start("broker", table["broker"], env)
     wait_for(p["MQTT_PORT"], "broker")
+    start("flightlog", table["flightlog"], env)
     for name in ("device-clap", "device-word", "device-hands", "flight"):
         start(name, table[name], env)
     wait_for(p["HANDS_DEVICE_PORT"], "device-hands", 120)
