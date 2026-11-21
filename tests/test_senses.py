@@ -391,21 +391,38 @@ def _person(cx: float, cy: float, span: float, arm: float) -> Any:
     return p
 
 
-def test_the_marshal_is_never_someone_cut_off_by_the_frame_or_side_on() -> None:
+def test_the_marshal_is_never_someone_cut_off_by_the_frame() -> None:
     from ri.senses.hands import arm_pose, marshal
 
     shape = (720, 1280)
     presenter = _person(640, 300, 100, 80)  # facing the camera, all in frame
     passer_by = _person(1230, 250, 240, 160)  # close, wide, half out of frame
-    side_on = _person(400, 300, 20, 80)  # shoulders overlap: turned away
-    crowd = np.stack([passer_by, side_on, presenter])
+    farther = _person(400, 300, 60, 50)  # smaller: farther away
+    crowd = np.stack([passer_by, farther, presenter])
     chosen = marshal(crowd, shape)
     assert chosen is not None and float(chosen[5][0]) == 590.0
-    # Without the frame size only the side-on rule applies, and the widest wins.
+    # Without the frame size the passer-by is the nearest.
     chosen = marshal(crowd)
     assert chosen is not None and float(chosen[5][0]) == 1110.0
-    assert marshal(np.stack([passer_by, side_on]), shape) is None
     assert arm_pose(np.stack([presenter]), shape) == pytest.approx((-0.5, 1.6, 0.5, 1.6))
+
+
+def test_a_presenter_turned_to_point_is_still_read() -> None:
+    from ri.senses.hands import arm_pose, marshal, marshal_signal
+
+    shape = (720, 1280)
+    # Turned to point at the camera's left: shoulders 20 px apart on camera,
+    # upper arms 80 px, both wrists 200 px out to the left at shoulder height.
+    turned = _person(640, 300, 20, 80)
+    turned[7], turned[8] = (560, 305, 0.9), (570, 310, 0.9)
+    turned[9], turned[10] = (440, 300, 0.9), (450, 320, 0.9)
+    assert marshal(turned[None], shape) is not None
+    pose = arm_pose(turned[None], shape)
+    assert pose is not None
+    # Measured in 1.2 upper arms (about 90 px), not 20 px of shoulder: about
+    # 2 across, as a facing presenter's point reads, not 10.
+    assert -2.5 < pose[0] < -1.5
+    assert marshal_signal([pose] * 8) == "left"
 
 
 def test_applause_needs_seconds_of_clapping_and_waits_before_again() -> None:

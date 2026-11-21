@@ -37,9 +37,11 @@ ELBOWS = (7, 8)
 # A keypoint this close to the frame's edge (of its shorter side) means the
 # person is cut off by it.
 EDGE_RATIO = 0.02
-# Facing the camera, shoulders are wider than an upper arm is long (about 1.2
-# times); side-on they shrink towards nothing.
-FACING_RATIO = 0.6
+# Facing the camera, shoulders are about 1.2 upper arms wide; turned to point
+# sideways they shrink to 0.2-0.6 of one on camera (rehearsal frames). So arms
+# are measured against the larger of the shoulders and 1.2 upper arms, which
+# is the shoulder width facing the camera and does not collapse turned away.
+ARM_SCALE = 1.2
 POINTS = (*SHOULDERS, *ELBOWS, *WRISTS)
 Roi = tuple[float, float, float, float]
 RAISE_REACH = 0.3
@@ -159,24 +161,21 @@ def hands_up(keypoints: Array, *, margin_ratio: float = 0.0) -> int:
 def marshal(keypoints: Array, shape: tuple[int, int] | None = None) -> Array | None:
     """The person giving signals: the nearest one whose arms can really be read.
 
-    Nearest is widest shoulders. Two kinds of person are passed over, because
-    each makes the widest-shoulders rule pick the wrong arms: someone cut off
-    by the edge of the frame (close to the camera, half out of shot), and
-    someone side-on to it, whose shoulders overlap so that every distance
-    measured in shoulder widths comes out several times too big.
+    Nearest is the biggest body scale (see `body_scale`). Someone cut off by
+    the edge of the frame (close to the camera, half out of shot) is passed
+    over: they would always look nearest. Someone turned side-on is not: that
+    is how a presenter stands to point to one side.
     """
     best: Array | None = None
-    best_span = 0.0
+    best_scale = 0.0
     for person in keypoints:
         if any(person[i][2] < KEYPOINT_MIN for i in (*SHOULDERS, *WRISTS)):
             continue
         if shape is not None and _cut_off(person, shape):
             continue
-        span = abs(float(person[SHOULDERS[0]][0]) - float(person[SHOULDERS[1]][0]))
-        if span <= 0.0 or _side_on(person, span):
-            continue
-        if span > best_span:
-            best, best_span = person, span
+        scale = body_scale(person)
+        if scale > best_scale:
+            best, best_scale = person, scale
     return best
 
 
@@ -192,14 +191,17 @@ def _cut_off(person: Array, shape: tuple[int, int]) -> bool:
     return False
 
 
-def _side_on(person: Array, span: float) -> bool:
-    """Shoulders much narrower than the upper arms are long: turned side-on."""
+def body_scale(person: Array) -> float:
+    """A shoulder width that survives turning: shoulders, or 1.2 upper arms if larger."""
+    span = abs(float(person[SHOULDERS[0]][0]) - float(person[SHOULDERS[1]][0]))
     arms = [
         math.dist(person[s][:2], person[e][:2])
         for s, e in zip(SHOULDERS, ELBOWS, strict=True)
         if person[s][2] >= KEYPOINT_MIN and person[e][2] >= KEYPOINT_MIN
     ]
-    return bool(arms) and span < FACING_RATIO * (sum(arms) / len(arms))
+    if not arms:
+        return span
+    return max(span, ARM_SCALE * sum(arms) / len(arms))
 
 
 def arm_pose(keypoints: Array, shape: tuple[int, int] | None = None) -> Arms | None:
@@ -211,7 +213,9 @@ def arm_pose(keypoints: Array, shape: tuple[int, int] | None = None) -> Arms | N
     best = marshal(keypoints, shape)
     if best is None:
         return None
-    best_span = abs(float(best[SHOULDERS[0]][0]) - float(best[SHOULDERS[1]][0]))
+    best_span = body_scale(best)
+    if best_span <= 0.0:
+        return None
     centre = (float(best[SHOULDERS[0]][0]) + float(best[SHOULDERS[1]][0])) / 2
     line = min(float(best[i][1]) for i in SHOULDERS)
     a, b = (
